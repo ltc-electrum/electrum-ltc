@@ -40,8 +40,8 @@ _logger = get_logger(__name__)
 HEADER_SIZE = 80  # bytes
 CHUNK_SIZE = 2016  # num headers in a difficulty retarget period
 
-# see https://github.com/bitcoin/bitcoin/blob/feedb9c84e72e4fff489810a2bbeec09bcda5763/src/chainparams.cpp#L76
-MAX_TARGET = 0x00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff  # compact: 0x1d00ffff
+# see https://github.com/litecoin-project/litecoin/blob/0.21/src/chainparams.cpp#L78
+MAX_TARGET = 0x00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff  # compact: 0x1e0ffff0
 
 
 class MissingHeader(Exception):
@@ -521,7 +521,7 @@ class Blockchain(Logger):
             return constants.net.GENESIS
         elif is_height_checkpoint():
             index = height // CHUNK_SIZE
-            h, t = self.checkpoints[index]
+            h, t, _ = self.checkpoints[index]
             return h
         else:
             header = self.read_header(height)
@@ -529,24 +529,32 @@ class Blockchain(Logger):
                 raise MissingHeader(height)
             return hash_header(header)
 
+    def get_timestamp(self, height):
+        if height < len(self.checkpoints) * CHUNK_SIZE and (height+1) % CHUNK_SIZE == 0:
+            index = height // CHUNK_SIZE
+            _, _, ts = self.checkpoints[index]
+            return ts
+        return self.read_header(height).get('timestamp')
+
     def get_target(self, index: int) -> int:
         # compute target from chunk x, used in chunk x+1
         if constants.net.TESTNET:
             return 0
         if index == -1:
-            return MAX_TARGET
+            return 0x00000FFFF0000000000000000000000000000000000000000000000000000000
         if index < len(self.checkpoints):
-            h, t = self.checkpoints[index]
+            h, t, _ = self.checkpoints[index]
             return t
         # new target
-        first = self.read_header(index * CHUNK_SIZE)
+        # Litecoin: go back the full period unless it's the first retarget
+        first_timestamp = self.get_timestamp(index * CHUNK_SIZE - 1 if index > 0 else 0)
         last = self.read_header((index+1) * CHUNK_SIZE - 1)
-        if not first or not last:
+        if not first_timestamp or not last:
             raise MissingHeader()
         bits = last.get('bits')
         target = self.bits_to_target(bits)
-        nActualTimespan = last.get('timestamp') - first.get('timestamp')
-        nTargetTimespan = 14 * 24 * 60 * 60
+        nActualTimespan = last.get('timestamp') - first_timestamp
+        nTargetTimespan = 84 * 60 * 60
         nActualTimespan = max(nActualTimespan, nTargetTimespan // 4)
         nActualTimespan = min(nActualTimespan, nTargetTimespan * 4)
         new_target = min(MAX_TARGET, (target * nActualTimespan) // nTargetTimespan)
@@ -667,7 +675,9 @@ class Blockchain(Logger):
         for index in range(n):
             h = self.get_hash((index+1) * CHUNK_SIZE -1)
             target = self.get_target(index)
-            cp.append((h, target))
+            # Litecoin: also store the timestamp of the last block
+            tstamp = self.get_timestamp((index+1) * CHUNK_SIZE - 1)
+            cp.append((h, target, tstamp))
         return cp
 
 
