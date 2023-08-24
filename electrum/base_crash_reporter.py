@@ -90,8 +90,8 @@ class BaseCrashReporter(Logger):
     def send_report(self, asyncio_loop, proxy: 'ProxySettings', *, timeout=None) -> CrashReportResponse:
         # FIXME the caller needs to catch generic "Exception", as this method does not have a well-defined API...
         if (constants.net.GENESIS[-4:] not in [
-            "e26f",  # mainnet
-            "4943",  # testnet 3
+            "bfe2",  # mainnet
+            "29a0",  # testnet 3
             "f043",  # testnet 4
             "1ef6",  # signet
         ] and ".electrum-ltc.org" in BaseCrashReporter.report_server):

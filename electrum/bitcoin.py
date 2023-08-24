@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 COINBASE_MATURITY = 100
 COIN = 100000000
-TOTAL_COIN_SUPPLY_LIMIT_IN_BTC = 21000000
+TOTAL_COIN_SUPPLY_LIMIT_IN_BTC = 84000000
 
 NLOCKTIME_MIN = 0
 NLOCKTIME_BLOCKHEIGHT_MAX = 500_000_000 - 1
@@ -338,11 +338,11 @@ def relayfee(network: 'Network' = None) -> int:
 
 # see https://github.com/bitcoin/bitcoin/blob/a62f0ed64f8bbbdfe6467ac5ce92ef5b5222d1bd/src/policy/policy.cpp#L14
 # and https://github.com/lightningnetwork/lightning-rfc/blob/7e3dce42cbe4fa4592320db6a4e06c26bb99122b/03-transactions.md#dust-limits
-DUST_LIMIT_P2PKH = 546
-DUST_LIMIT_P2SH = 540
-DUST_LIMIT_UNKNOWN_SEGWIT = 354
-DUST_LIMIT_P2WSH = 330
-DUST_LIMIT_P2WPKH = 294
+DUST_LIMIT_P2PKH = 5460
+DUST_LIMIT_P2SH = 5400
+DUST_LIMIT_UNKNOWN_SEGWIT = 3540
+DUST_LIMIT_P2WSH = 3300
+DUST_LIMIT_P2WPKH = 2940
 
 
 def dust_threshold(network: 'Network' = None) -> int:
@@ -603,10 +603,10 @@ def DecodeBase58Check(psz: Union[bytes, str]) -> bytes:
 # extended WIF for segwit (used in 3.0.x; but still used internally)
 # the keys in this dict should be a superset of what Imported Wallets can import
 WIF_SCRIPT_TYPES = {
-    'p2pkh': 0,
+    'p2pkh': 48,
     'p2wpkh': 1,
     'p2wpkh-p2sh': 2,
-    'p2sh': 5,
+    'p2sh': 50,
     'p2wsh': 6,
     'p2wsh-p2sh': 7
 }
@@ -624,7 +624,7 @@ def serialize_privkey(secret: bytes, compressed: bool, txin_type: str, *,
     if internal_use:
         prefix = bytes([(WIF_SCRIPT_TYPES[txin_type] + constants.net.WIF_PREFIX) & 255])
     else:
-        prefix = bytes([constants.net.WIF_PREFIX])
+        prefix = bytes([(WIF_SCRIPT_TYPES['p2pkh'] + constants.net.WIF_PREFIX) & 255])
     suffix = b'\01' if compressed else b''
     vchIn = prefix + secret + suffix
     base58_wif = EncodeBase58Check(vchIn)
@@ -658,7 +658,7 @@ def deserialize_privkey(key: str) -> Tuple[str, bytes, bool]:
             raise BitcoinException('invalid prefix ({}) for WIF key (1)'.format(vch[0])) from None
     else:
         # all other keys must have a fixed first byte
-        if vch[0] != constants.net.WIF_PREFIX:
+        if vch[0] != (WIF_SCRIPT_TYPES['p2pkh'] + constants.net.WIF_PREFIX) & 255:
             raise BitcoinException('invalid prefix ({}) for WIF key (2)'.format(vch[0]))
 
     if len(vch) not in [33, 34]:
@@ -862,7 +862,7 @@ def control_block_for_taproot_script_spend(
 # user message signing
 def usermessage_magic(message: bytes) -> bytes:
     length = var_int(len(message))
-    return b"\x18Bitcoin Signed Message:\n" + length + message
+    return b"\x18Litecoin Signed Message:\n" + length + message
 
 
 def ecdsa_sign_usermessage(ec_privkey, message: Union[bytes, str], *, is_compressed: bool) -> bytes:
