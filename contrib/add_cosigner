@@ -9,7 +9,7 @@
 #
 # - BUILDER builds all binaries and checks they match the official releases
 #   (using release.sh, and perhaps some manual steps)
-# - BUILDER creates a PR against https://github.com/spesmilo/electrum-signatures/
+# - BUILDER creates a PR against https://github.com/litecoin-foundation/electrum-ltc-signatures/
 #   to add their sigs for a given release, which then gets merged
 # - SFTPUSER runs `$ SSHUSER=$SFTPUSER electrum/contrib/add_cosigner $BUILDER`
 # - SFTPUSER runs `$ electrum/contrib/make_download $WWW_DIR`
@@ -60,7 +60,7 @@ files = {
 
 for shortname, filename in files.items():
     path = f"dist/{filename}"
-    link = f"https://download.electrum.org/{version}/{filename}"
+    link = f"https://download.electrum-ltc.org/{version}/{filename}"
     if not os.path.exists(path):
         os.system(f"wget -q {link} -O {path}")
     if not os.path.getsize(path):

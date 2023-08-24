@@ -52,7 +52,7 @@ class CrashReportResponse(NamedTuple):
 
 
 class BaseCrashReporter(Logger):
-    report_server = "https://crashhub.electrum.org"
+    report_server = "https://crashhub.electrum-ltc.org"
     issue_template = """<h2>Traceback</h2>
 <pre>
 {traceback}
@@ -94,7 +94,7 @@ class BaseCrashReporter(Logger):
             "4943",  # testnet 3
             "f043",  # testnet 4
             "1ef6",  # signet
-        ] and ".electrum.org" in BaseCrashReporter.report_server):
+        ] and ".electrum-ltc.org" in BaseCrashReporter.report_server):
             # Gah! Some kind of altcoin wants to send us crash reports.
             raise Exception(_("Missing report URL."))
         report = self.get_traceback_info(*self.exc_args)

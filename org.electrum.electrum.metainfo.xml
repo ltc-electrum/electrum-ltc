@@ -29,7 +29,7 @@
       <name>The Electrum developers</name>
   </developer>
 
-  <launchable type="desktop-id">electrum.desktop</launchable>
+  <launchable type="desktop-id">electrum-ltc.desktop</launchable>
 
   <content_rating type="oars-1.1" />
 </component>

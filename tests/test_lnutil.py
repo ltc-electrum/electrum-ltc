@@ -1081,7 +1081,7 @@ class TestLNUtil(ElectrumTestCase):
                 is_initiator=True,
                 node_id=bfh('02bf82e22f99dcd7ac1de4aad5152ce48f0694c46ec582567f379e0adbf81e2d0f'),
                 privkey=bfh('7e634853dc47f0bc2f2e0d1054b302fcb414371ddbd889f29ba8aa4e8b62c772'),
-                host='lightning.electrum.org',
+                host='lightning.electrum-ltc.org',
                 port=9739,
                 channel_seed=bfh('ce9bad44ff8521d9f57fd202ad7cdedceb934f0056f42d0f3aa7a576b505332a'),
                 local_delay=1008,
