@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 #
 # Electrum - lightweight Bitcoin client
 # Copyright (C) 2012 thomasv@gitorious
@@ -96,8 +97,12 @@ def _ensure_translation_keeps_format_string_syntax_similar(translator):
 #          _("time left: {mins} minutes, {secs} seconds").format(mins=t//60, secs=t%60)   # <- works, but too complex
 @_ensure_translation_keeps_format_string_syntax_similar
 def _(msg: str, *, context=None) -> str:
+    dic = [('BTC', 'LTC'), ('Bitcoin', 'Litecoin'), ('bitcoin', 'litecoin'), ('比特币', '莱特币')]
     if msg == "":
         return ""  # empty string must not be translated. see #7158
+    # litecoin: replace bitcoin strings w/ litecoin strings
+    for b, l in dic:
+        msg = msg.replace(l, b)
     if context:
         contexts = [context]
         if context[-1] != "|":  # try with both "|" suffix and without
@@ -109,7 +114,11 @@ def _(msg: str, *, context=None) -> str:
             if out != msg:  # found non-trivial translation
                 return out
         # else try without context
-    return _language.gettext(msg)
+    # return injected litecoin strings
+    t = _language.gettext(msg)
+    for b, l in dic:
+        t = t.replace(b, l)
+    return t
 
 
 def set_language(x: Optional[str]) -> None:
