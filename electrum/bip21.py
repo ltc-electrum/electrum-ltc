@@ -9,8 +9,8 @@ from .bitcoin import COIN, TOTAL_COIN_SUPPLY_LIMIT_IN_BTC
 from .lnaddr import lndecode, LnDecodeException
 
 # note: when checking against these, use .lower() to support case-insensitivity
-BITCOIN_BIP21_URI_SCHEME = 'bitcoin'
-LIGHTNING_URI_SCHEME = 'lightning'
+BITCOIN_BIP21_URI_SCHEME = 'litecoin'
+LIGHTNING_URI_SCHEME = 'lightningltc'
 
 
 class InvalidBitcoinURI(Exception):
@@ -25,12 +25,12 @@ def parse_bip21_URI(uri: str) -> dict:
 
     if ':' not in uri:
         if not bitcoin.is_address(uri):
-            raise InvalidBitcoinURI("Not a bitcoin address")
+            raise InvalidBitcoinURI("Not a litecoin address")
         return {'address': uri}
 
     u = urllib.parse.urlparse(uri)
     if u.scheme.lower() != BITCOIN_BIP21_URI_SCHEME:
-        raise InvalidBitcoinURI("Not a bitcoin URI")
+        raise InvalidBitcoinURI("Not a litecoin URI")
     address = u.path
 
     # python for android fails to parse query
@@ -50,7 +50,7 @@ def parse_bip21_URI(uri: str) -> dict:
     out = {k: v[0] for k, v in pq.items()}
     if address:
         if not bitcoin.is_address(address):
-            raise InvalidBitcoinURI(f"Invalid bitcoin address: {address}")
+            raise InvalidBitcoinURI(f"Invalid litecoin address: {address}")
         out['address'] = address
     if 'amount' in out:
         am = out['amount']
@@ -84,11 +84,11 @@ def parse_bip21_URI(uri: str) -> dict:
             out['sig'] = bitcoin.base_decode(out['sig'], base=58).hex()
         except Exception as e:
             raise InvalidBitcoinURI(f"failed to parse 'sig' field: {repr(e)}") from e
-    if 'lightning' in out:
+    if 'lightningltc' in out:
         try:
-            lnaddr = lndecode(out['lightning'])
+            lnaddr = lndecode(out['lightningltc'])
         except LnDecodeException as e:
-            raise InvalidBitcoinURI(f"Failed to decode 'lightning' field: {e!r}") from e
+            raise InvalidBitcoinURI(f"Failed to decode 'lightningltc' field: {e!r}") from e
         amount_sat = out.get('amount')
         if amount_sat:
             # allow small leeway due to msat precision
