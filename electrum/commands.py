@@ -507,7 +507,7 @@ class Commands(Logger):
                  "value_sats": 1000000, "privkey": "p2wpkh:cVDXzzQg6RoCTfiKpe8MBvmm5d5cJc6JLuFApsFDKwWa6F5TVHpD"}
             ],
             "outputs": [
-                {"address": "tb1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m8kv5zd", "value_sats": 990000}
+                {"address": "tltc1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m77w2jy", "value_sats": 990000}
             ]
         }
         arg:json:jsontx:Transaction in json

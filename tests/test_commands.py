@@ -100,7 +100,7 @@ class TestCommands(ElectrumTestCase):
     @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
     async def test_encrypt_decrypt(self, mock_save_db):
         wallet = restore_wallet_from_text__for_unittest(
-            'p2wpkh:L4rYY5QpfN6wJEF4SEKDpcGhTPnCe9zcGs6hiSnhpprZqVywFifN',
+            'p2wpkh:TAgoypi14k5Y54svysG62xp5QFRWiF1W64zxaFRFPo2jMPSMoa5D',
             path='if_this_exists_mocking_failed_648151893',
             config=self.config)['wallet']
         cmds = Commands(config=self.config)
@@ -112,7 +112,7 @@ class TestCommands(ElectrumTestCase):
     @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
     async def test_export_private_key_imported(self, mock_save_db):
         wallet = restore_wallet_from_text__for_unittest(
-            'p2wpkh:L4rYY5QpfN6wJEF4SEKDpcGhTPnCe9zcGs6hiSnhpprZqVywFifN p2wpkh:L4jkdiXszG26SUYvwwJhzGwg37H2nLhrbip7u6crmgNeJysv5FHL',
+            'p2wpkh:TAgoypi14k5Y54svysG62xp5QFRWiF1W64zxaFRFPo2jMPSMoa5D p2wpkh:TAa25Tq4PdzhDKBoVaFaCdV3yxvLrRikQviNkuFQLeYopsVvNTV3',
             path='if_this_exists_mocking_failed_648151893',
             config=self.config)['wallet']
         cmds = Commands(config=self.config)
@@ -120,14 +120,14 @@ class TestCommands(ElectrumTestCase):
         with self.assertRaises(UserFacingException):
             await cmds.getprivatekeys("asdasd", wallet=wallet)  # invalid addr, though might raise "not in wallet"
         with self.assertRaises(UserFacingException):
-            await cmds.getprivatekeys("bc1qgfam82qk7uwh5j2xxmcd8cmklpe0zackyj6r23", wallet=wallet)  # not in wallet
-        self.assertEqual("p2wpkh:L4jkdiXszG26SUYvwwJhzGwg37H2nLhrbip7u6crmgNeJysv5FHL",
-                         await cmds.getprivatekeys("bc1q2ccr34wzep58d4239tl3x3734ttle92a8srmuw", wallet=wallet))
+            await cmds.getprivatekeys("ltc1qgfam82qk7uwh5j2xxmcd8cmklpe0zackqwq8jp", wallet=wallet)  # not in wallet
+        self.assertEqual("p2wpkh:TAa25Tq4PdzhDKBoVaFaCdV3yxvLrRikQviNkuFQLeYopsVvNTV3",
+                         await cmds.getprivatekeys("ltc1q2ccr34wzep58d4239tl3x3734ttle92arvely7", wallet=wallet))
         # list of addresses tests
         with self.assertRaises(UserFacingException):
-            await cmds.getprivatekeys(['bc1q2ccr34wzep58d4239tl3x3734ttle92a8srmuw', 'asd'], wallet=wallet)
-        self.assertEqual(['p2wpkh:L4jkdiXszG26SUYvwwJhzGwg37H2nLhrbip7u6crmgNeJysv5FHL', 'p2wpkh:L4rYY5QpfN6wJEF4SEKDpcGhTPnCe9zcGs6hiSnhpprZqVywFifN'],
-                         await cmds.getprivatekeys(['bc1q2ccr34wzep58d4239tl3x3734ttle92a8srmuw', 'bc1q9pzjpjq4nqx5ycnywekcmycqz0wjp2nq604y2n'], wallet=wallet))
+            await cmds.getprivatekeys(['ltc1q2ccr34wzep58d4239tl3x3734ttle92arvely7', 'asd'], wallet=wallet)
+        self.assertEqual(['p2wpkh:TAa25Tq4PdzhDKBoVaFaCdV3yxvLrRikQviNkuFQLeYopsVvNTV3', 'p2wpkh:TAgoypi14k5Y54svysG62xp5QFRWiF1W64zxaFRFPo2jMPSMoa5D'],
+                         await cmds.getprivatekeys(['ltc1q2ccr34wzep58d4239tl3x3734ttle92arvely7', 'ltc1q9pzjpjq4nqx5ycnywekcmycqz0wjp2nq7n0qjr'], wallet=wallet))
 
     @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
     async def test_export_private_key_deterministic(self, mock_save_db):
@@ -140,14 +140,14 @@ class TestCommands(ElectrumTestCase):
         with self.assertRaises(UserFacingException):
             await cmds.getprivatekeys("asdasd", wallet=wallet)  # invalid addr, though might raise "not in wallet"
         with self.assertRaises(UserFacingException):
-            await cmds.getprivatekeys("bc1qgfam82qk7uwh5j2xxmcd8cmklpe0zackyj6r23", wallet=wallet)  # not in wallet
-        self.assertEqual("p2wpkh:L15oxP24NMNAXxq5r2aom24pHPtt3Fet8ZutgL155Bad93GSubM2",
-                         await cmds.getprivatekeys("bc1q3g5tmkmlvxryhh843v4dz026avatc0zzr6h3af", wallet=wallet))
+            await cmds.getprivatekeys("ltc1qgfam82qk7uwh5j2xxmcd8cmklpe0zackqwq8jp", wallet=wallet)  # not in wallet
+        self.assertEqual("p2wpkh:T6v5Q8KEmjLmJoTxPfXfyNcCEFYC7Lfmwmp9Y8dce9knevo9ZkPk",
+                         await cmds.getprivatekeys("ltc1q3g5tmkmlvxryhh843v4dz026avatc0zz8xd49e", wallet=wallet))
         # list of addresses tests
         with self.assertRaises(UserFacingException):
-            await cmds.getprivatekeys(['bc1q3g5tmkmlvxryhh843v4dz026avatc0zzr6h3af', 'asd'], wallet=wallet)
-        self.assertEqual(['p2wpkh:L15oxP24NMNAXxq5r2aom24pHPtt3Fet8ZutgL155Bad93GSubM2', 'p2wpkh:L4rYY5QpfN6wJEF4SEKDpcGhTPnCe9zcGs6hiSnhpprZqVywFifN'],
-                         await cmds.getprivatekeys(['bc1q3g5tmkmlvxryhh843v4dz026avatc0zzr6h3af', 'bc1q9pzjpjq4nqx5ycnywekcmycqz0wjp2nq604y2n'], wallet=wallet))
+            await cmds.getprivatekeys(['ltc1q3g5tmkmlvxryhh843v4dz026avatc0zz8xd49e', 'asd'], wallet=wallet)
+        self.assertEqual(['p2wpkh:T6v5Q8KEmjLmJoTxPfXfyNcCEFYC7Lfmwmp9Y8dce9knevo9ZkPk', 'p2wpkh:TAgoypi14k5Y54svysG62xp5QFRWiF1W64zxaFRFPo2jMPSMoa5D'],
+                         await cmds.getprivatekeys(['ltc1q3g5tmkmlvxryhh843v4dz026avatc0zz8xd49e', 'ltc1q9pzjpjq4nqx5ycnywekcmycqz0wjp2nq7n0qjr'], wallet=wallet))
 
     async def test_verifymessage_enforces_strict_base64(self):
         cmds = Commands(config=self.config)
@@ -248,7 +248,7 @@ class TestCommandsTestnet(ElectrumTestCase):
             ],
             "outputs": [
                 {
-                    "address": "tb1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m8kv5zd",
+                    "address": "tltc1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m77w2jy",
                     "value_sats": 990000
                 }
             ]
@@ -270,7 +270,7 @@ class TestCommandsTestnet(ElectrumTestCase):
             ],
             "outputs": [
                 {
-                    "address": "tb1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m8kv5zd",
+                    "address": "tltc1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m77w2jy",
                     "value_sats": 990000
                 }
             ]
@@ -306,7 +306,7 @@ class TestCommandsTestnet(ElectrumTestCase):
 
         cmds = Commands(config=self.config)
         tx_str = await cmds.payto(
-            destination="tb1qsyzgpwa0vg2940u5t6l97etuvedr5dejpf9tdy",
+            destination="tltc1qsyzgpwa0vg2940u5t6l97etuvedr5dejcp84ad",
             amount="0.00123456",
             feerate=50,
             locktime=1972344,
@@ -314,7 +314,7 @@ class TestCommandsTestnet(ElectrumTestCase):
 
         tx = tx_from_any(tx_str)
         self.assertEqual(2, len(tx.outputs()))
-        txout = TxOutput.from_address_and_value("tb1qsyzgpwa0vg2940u5t6l97etuvedr5dejpf9tdy", 123456)
+        txout = TxOutput.from_address_and_value("tltc1qsyzgpwa0vg2940u5t6l97etuvedr5dejcp84ad", 123456)
         self.assertTrue(txout in tx.outputs())
         self.assertEqual("02000000000101a0a8800d2d6bb0a4a8b93b793f39439c4139a40d30e634cf5cd601e5391de6ed0100000000fdffffff0240e2010000000000160014810480bbaf62145abf945ebe5f657c665a3a3732462b060000000000160014a5103285eb519f826520a9f7d3227e1eaa7ec5f802473044022057a6f4b1ec63336c7d0ba233e785ec9f2e2d9c2d67617a50e069f4498ee6a3b7022032fb331e0bef06f46e9cb77bfe94413142653c4912516835e941fa7f170c1a53012103001b55f19541faaf7e6d57dd1bdb9fdc37725fc500e12f2418cc11e0aed4154978181e00",
                          tx_str)
@@ -336,7 +336,7 @@ class TestCommandsTestnet(ElectrumTestCase):
 
         async def create_tx():
             return await cmds.payto(
-                destination="tb1qsyzgpwa0vg2940u5t6l97etuvedr5dejpf9tdy",
+                destination="tltc1qsyzgpwa0vg2940u5t6l97etuvedr5dejcp84ad",
                 amount="0.00123456",
                 feerate=50,
                 locktime=1972344,
@@ -351,7 +351,7 @@ class TestCommandsTestnet(ElectrumTestCase):
 
         tx = tx_from_any(tx_str)
         self.assertEqual(2, len(tx.outputs()))
-        txout = TxOutput.from_address_and_value("tb1qsyzgpwa0vg2940u5t6l97etuvedr5dejpf9tdy", 123456)
+        txout = TxOutput.from_address_and_value("tltc1qsyzgpwa0vg2940u5t6l97etuvedr5dejcp84ad", 123456)
         self.assertTrue(txout in tx.outputs())
 
     @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
@@ -368,10 +368,10 @@ class TestCommandsTestnet(ElectrumTestCase):
 
         cmds = Commands(config=self.config)
         tx_str = await cmds.paytomany(
-            outputs=[["tb1qk3g0t9pw5wctkzz7gh6k3ljfuukn729s67y54e", 0.002],
-                     ["tb1qr7evucrllljtryam6y2k3ntmlptq208pghql2h", "2!"],
-                     ["tb1qs3msqp0n0qade2haanjw2dkaa5lm77vwvce00h", 0.003],
-                     ["tb1qar4ye43tdfj6y5n3yndp9adhs2wuz2v0wgqn5l", "3!"]],
+            outputs=[["tltc1qk3g0t9pw5wctkzz7gh6k3ljfuukn729srkx29s", 0.002],
+                     ["tltc1qr7evucrllljtryam6y2k3ntmlptq208p3lzp67", "2!"],
+                     ["tltc1qs3msqp0n0qade2haanjw2dkaa5lm77vw4sm3l7", 0.003],
+                     ["tltc1qar4ye43tdfj6y5n3yndp9adhs2wuz2v0hqzdyk", "3!"]],
             fee="0.00005000",
             locktime=2094054,
             wallet=wallet)

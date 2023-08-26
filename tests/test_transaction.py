@@ -136,7 +136,7 @@ class TestTransaction(ElectrumTestCase):
         self.assertEqual('3140eb24b43386f35ba69e3875eb6c93130ac66201d01c58f598defc949a5c2a:0', tx.inputs()[0].prevout.to_str())
         self.assertEqual(1, len(tx.outputs()))
         self.assertEqual(bfh('76a914230ac37834073a42146f11ef8414ae929feaafc388ac'), tx.outputs()[0].scriptpubkey)
-        self.assertEqual('14CHYaaByjJZpx4oHBpfDMdqhTyXnZ3kVs', tx.outputs()[0].address)
+        self.assertEqual('LNREont24PYd5kkxTKoxVNhbugLowNb7H8', tx.outputs()[0].address)
         self.assertEqual(1000000, tx.outputs()[0].value)
 
         self.assertEqual(tx.serialize(), signed_blob)
@@ -152,10 +152,10 @@ class TestTransaction(ElectrumTestCase):
 
     def test_estimated_output_size(self):
         estimated_output_size = transaction.Transaction.estimated_output_size_for_address
-        self.assertEqual(estimated_output_size('14gcRovpkCoGkCNBivQBvw7eso7eiNAbxG'), 34)
-        self.assertEqual(estimated_output_size('35ZqQJcBQMZ1rsv8aSuJ2wkC7ohUCQMJbT'), 32)
-        self.assertEqual(estimated_output_size('bc1q3g5tmkmlvxryhh843v4dz026avatc0zzr6h3af'), 31)
-        self.assertEqual(estimated_output_size('bc1qnvks7gfdu72de8qv6q6rhkkzu70fqz4wpjzuxjf6aydsx7wxfwcqnlxuv3'), 43)
+        self.assertEqual(estimated_output_size('LNuZh2Eeps3L114Lu4PVCxBR61UvrUKgze'), 34)
+        self.assertEqual(estimated_output_size('MBmyiC29MUQSfPC2gKtdrazbSWHvGqJCnU'), 32)
+        self.assertEqual(estimated_output_size('ltc1q3g5tmkmlvxryhh843v4dz026avatc0zz8xd49e'), 31)
+        self.assertEqual(estimated_output_size('ltc1qnvks7gfdu72de8qv6q6rhkkzu70fqz4wpjzuxjf6aydsx7wxfwcqsmgvk5'), 43)
 
     # TODO other tests for segwit tx
     def test_tx_signed_segwit(self):
@@ -185,23 +185,23 @@ class TestTransaction(ElectrumTestCase):
 
         # bech32/bech32m native segwit
         # test vectors from BIP-0173/BIP-0350
-        self.assertEqual('bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4', addr_from_script('0014751e76e8199196d454941c45d1b3a323f1433bd6'))
-        self.assertEqual('bc1pw508d6qejxtdg4y5r3zarvary0c5xw7kw508d6qejxtdg4y5r3zarvary0c5xw7kt5nd6y', addr_from_script('5128751e76e8199196d454941c45d1b3a323f1433bd6751e76e8199196d454941c45d1b3a323f1433bd6'))
-        self.assertEqual('bc1sw50qgdz25j', addr_from_script('6002751e'))
-        self.assertEqual('bc1zw508d6qejxtdg4y5r3zarvaryvaxxpcs', addr_from_script('5210751e76e8199196d454941c45d1b3a323'))
-        self.assertEqual('bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0', addr_from_script('512079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'))
+        self.assertEqual('ltc1qw508d6qejxtdg4y5r3zarvary0c5xw7kgmn4n9', addr_from_script('0014751e76e8199196d454941c45d1b3a323f1433bd6'))
+        self.assertEqual('ltc1pw508d6qejxtdg4y5r3zarvary0c5xw7kw508d6qejxtdg4y5r3zarvary0c5xw7k6hvnsv', addr_from_script('5128751e76e8199196d454941c45d1b3a323f1433bd6751e76e8199196d454941c45d1b3a323f1433bd6'))
+        self.assertEqual('ltc1sw50qh55pvk', addr_from_script('6002751e'))
+        self.assertEqual('ltc1zw508d6qejxtdg4y5r3zarvaryvc7v05v', addr_from_script('5210751e76e8199196d454941c45d1b3a323'))
+        self.assertEqual('ltc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqpj6zg2', addr_from_script('512079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'))
         # almost but not quite
         self.assertEqual(None, addr_from_script('0013751e76e8199196d454941c45d1b3a323f1433b'))
 
         # base58 p2pkh
-        self.assertEqual('14gcRovpkCoGkCNBivQBvw7eso7eiNAbxG', addr_from_script('76a91428662c67561b95c79d2257d2a93d9d151c977e9188ac'))
-        self.assertEqual('1BEqfzh4Y3zzLosfGhw1AsqbEKVW6e1qHv', addr_from_script('76a914704f4b81cadb7bf7e68c08cd3657220f680f863c88ac'))
+        self.assertEqual('LNuZh2Eeps3L114Lu4PVCxBR61UvrUKgze', addr_from_script('76a91428662c67561b95c79d2257d2a93d9d151c977e9188ac'))
+        self.assertEqual('LVTnwCztciF3bcZpSqvJStuMSXrnCcRjNm', addr_from_script('76a914704f4b81cadb7bf7e68c08cd3657220f680f863c88ac'))
         # almost but not quite
         self.assertEqual(None, addr_from_script('76a9130000000000000000000000000000000000000088ac'))
 
         # base58 p2sh
-        self.assertEqual('35ZqQJcBQMZ1rsv8aSuJ2wkC7ohUCQMJbT', addr_from_script('a9142a84cf00d47f699ee7bbc1dea5ec1bdecb4ac15487'))
-        self.assertEqual('3PyjzJ3im7f7bcV724GR57edKDqoZvH7Ji', addr_from_script('a914f47c8954e421031ad04ecd8e7752c9479206b9d387'))
+        self.assertEqual('MBmyiC29MUQSfPC2gKtdrazbSWHvGqJCnU', addr_from_script('a9142a84cf00d47f699ee7bbc1dea5ec1bdecb4ac15487'))
+        self.assertEqual('MWBtJBTgiEWYQ7m17wFktku2dvSFZXqhWZ', addr_from_script('a914f47c8954e421031ad04ecd8e7752c9479206b9d387'))
         # almost but not quite
         self.assertEqual(None, addr_from_script('a912f47c8954e421031ad04ecd8e7752c947920687'))
 
@@ -896,7 +896,7 @@ class TestTransactionTestnet(ElectrumTestCase):
 
         # Build the Transaction Output
         txout = PartialTxOutput.from_address_and_value(
-            'tb1qv9hg20f0g08d460l67ph6p4ukwt7m0ttqzj7mk', sats_less_fees)
+            'tltc1qv9hg20f0g08d460l67ph6p4ukwt7m0tte2sqtl', sats_less_fees)
 
         # Build and sign the transaction
         tx = PartialTransaction.from_io([txin], [txout], locktime=locktime, version=1)
@@ -921,7 +921,7 @@ class TestTransactionTestnet(ElectrumTestCase):
             locktime, opcodes.OP_CHECKLOCKTIMEVERIFY, opcodes.OP_DROP, pubkey, opcodes.OP_CHECKSIG,
         ])
         from_addr = bitcoin.script_to_p2wsh(witness_script)
-        self.assertEqual("tb1q9dn6qke9924xe3zmptmhrdge0s043pjxpjndypgnu2t9fvsd4crs2qjuer", from_addr)
+        self.assertEqual("tltc1q9dn6qke9924xe3zmptmhrdge0s043pjxpjndypgnu2t9fvsd4crs4rwaxu", from_addr)
         prevout = TxOutpoint(txid=bfh('8680971efd5203025cffe746f8598d0a704fae81f236ffe009c2609ec673d59a'), out_idx=0)
         txin = PartialTxInput(prevout=prevout)
         txin._trusted_value_sats = sats
@@ -931,7 +931,7 @@ class TestTransactionTestnet(ElectrumTestCase):
 
         # Build the Transaction Output
         txout = PartialTxOutput.from_address_and_value(
-            'tb1qtgsfkgptcxdn6dz6wh8c4dguk3cezwne5j5c47', sats_less_fees)
+            'tltc1qtgsfkgptcxdn6dz6wh8c4dguk3cezwned6kx9h', sats_less_fees)
 
         # Build and sign the transaction
         tx = PartialTransaction.from_io([txin], [txout], locktime=locktime, version=2)

@@ -59,7 +59,7 @@ class TestTimelockRecovery(ElectrumTestCase):
 
         context = TimelockRecoveryContext(wallet)
         context.outputs = [
-            PartialTxOutput(scriptpubkey=address_to_script('tb1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m8kv5zd'), value='!'),
+            PartialTxOutput(scriptpubkey=address_to_script('tltc1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m77w2jy'), value='!'),
         ]
 
         alert_tx = context.make_unsigned_alert_tx(fee_policy=FixedFeePolicy(5000))
@@ -71,7 +71,7 @@ class TestTimelockRecovery(ElectrumTestCase):
         ])
         alert_tx_outputs = [(tx_output.address, tx_output.value) for tx_output in alert_tx.outputs()]
         self.assertEqual(alert_tx_outputs, [
-            ('tb1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m8kv5zd', 600),
+            ('tltc1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m77w2jy', 600),
             ('tb1qchyc02y9mv4xths4je9puc4yzuxt8rfm26ef07', 743065),
         ])
         self.assertEqual(alert_tx.txid(), '01c227f136c4490ec7cb0fe2ba5e44c436f58906b7fc29a83cb865d7e3bfaa60')
@@ -81,7 +81,7 @@ class TestTimelockRecovery(ElectrumTestCase):
 
         context = TimelockRecoveryContext(wallet)
         context.outputs = [
-            PartialTxOutput(scriptpubkey=address_to_script('tb1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m8kv5zd'), value='!'),
+            PartialTxOutput(scriptpubkey=address_to_script('tltc1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m77w2jy'), value='!'),
         ]
         context.alert_tx = context.make_unsigned_alert_tx(fee_policy=FixedFeePolicy(5000))
         context.timelock_days = 90
@@ -96,7 +96,7 @@ class TestTimelockRecovery(ElectrumTestCase):
 
         recovery_tx_outputs = [(tx_output.address, tx_output.value) for tx_output in recovery_tx.outputs()]
         self.assertEqual(recovery_tx_outputs, [
-            ('tb1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m8kv5zd', 738065),
+            ('tltc1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m77w2jy', 738065),
         ])
 
     async def test_make_unsigned_cancellation_tx(self):
@@ -104,7 +104,7 @@ class TestTimelockRecovery(ElectrumTestCase):
 
         context = TimelockRecoveryContext(wallet)
         context.outputs = [
-            PartialTxOutput(scriptpubkey=address_to_script('tb1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m8kv5zd'), value='!'),
+            PartialTxOutput(scriptpubkey=address_to_script('tltc1q4s8z6g5jqzllkgt8a4har94wl8tg0k9m77w2jy'), value='!'),
         ]
         context.alert_tx = context.make_unsigned_alert_tx(fee_policy=FixedFeePolicy(5000))
 

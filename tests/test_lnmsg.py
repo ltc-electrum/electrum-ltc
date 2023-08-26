@@ -201,7 +201,7 @@ class TestLNMsg(ElectrumTestCase):
                              timestamp=1584320643,
                          ))
         self.assertEqual(('channel_update',
-                         {'chain_hash': b'CI\x7f\xd7\xf8&\x95q\x08\xf4\xa3\x0f\xd9\xce\xc3\xae\xbay\x97 \x84\xe9\x0e\xad\x01\xea3\t\x00\x00\x00\x00',
+                         {'chain_hash': b'\xa0)>N\xeb=\xa6\xe6\xf5o\x81\xedY_W\x88\r\x1a!V\x9e\x13\xee\xfd\xd9Q(KZbfI',
                           'channel_flags': b'\x00',
                           'cltv_expiry_delta': 144,
                           'fee_base_msat': 500,
@@ -231,7 +231,7 @@ class TestLNMsg(ElectrumTestCase):
                              timestamp=int.to_bytes(1584320643, length=4, byteorder="big", signed=False),
                          ))
         self.assertEqual(('channel_update',
-                         {'chain_hash': b'CI\x7f\xd7\xf8&\x95q\x08\xf4\xa3\x0f\xd9\xce\xc3\xae\xbay\x97 \x84\xe9\x0e\xad\x01\xea3\t\x00\x00\x00\x00',
+                         {'chain_hash': b'\xa0)>N\xeb=\xa6\xe6\xf5o\x81\xedY_W\x88\r\x1a!V\x9e\x13\xee\xfd\xd9Q(KZbfI',
                           'channel_flags': b'\x00',
                           'cltv_expiry_delta': 144,
                           'fee_base_msat': 500,
@@ -337,7 +337,7 @@ class TestLNMsg(ElectrumTestCase):
                                        LnFeatures.OPTION_DATA_LOSS_PROTECT_OPT),
                              init_tlvs={
                                  'networks':
-                                     {'chains': b'CI\x7f\xd7\xf8&\x95q\x08\xf4\xa3\x0f\xd9\xce\xc3\xae\xbay\x97 \x84\xe9\x0e\xad\x01\xea3\t\x00\x00\x00\x00'}
+                                     {'chains': b'\xa0)>N\xeb=\xa6\xe6\xf5o\x81\xedY_W\x88\r\x1a!V\x9e\x13\xee\xfd\xd9Q(KZbfI'}
                              }
                          ))
         self.assertEqual(('init',
@@ -355,7 +355,7 @@ class TestLNMsg(ElectrumTestCase):
                           'features': b'\x02\xaa\xa2',
                           'init_tlvs': {
                               'networks':
-                                  {'chains': b'CI\x7f\xd7\xf8&\x95q\x08\xf4\xa3\x0f\xd9\xce\xc3\xae\xbay\x97 \x84\xe9\x0e\xad\x01\xea3\t\x00\x00\x00\x00'}
+                                  {'chains': b'\xa0)>N\xeb=\xa6\xe6\xf5o\x81\xedY_W\x88\r\x1a!V\x9e\x13\xee\xfd\xd9Q(KZbfI'}
                           }}),
                          decode_msg(bfh("001000022200000302aaa2012043497fd7f826957108f4a30fd9cec3aeba79972084e90ead01ea330900000000")))
 

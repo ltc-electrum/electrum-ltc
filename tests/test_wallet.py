@@ -91,7 +91,7 @@ class TestWalletStorage(WalletTestCase):
 
     async def test_storage_imported_add_privkeys_persistence_test(self):
         text = ' '.join([
-            'p2wpkh:L4jkdiXszG26SUYvwwJhzGwg37H2nLhrbip7u6crmgNeJysv5FHL',
+            'p2wpkh:TAa25Tq4PdzhDKBoVaFaCdV3yxvLrRikQviNkuFQLeYopsVvNTV3',
             'p2wpkh:L24GxnN7NNUAfCXA6hFzB1jt59fYAAiFZMcLaJ2ZSawGpM3uqhb1'
         ])
         d = restore_wallet_from_text__for_unittest(text, path=self.wallet_path, config=self.config)
@@ -254,7 +254,7 @@ class TestCreateRestoreWallet(WalletTestCase):
         self.assertEqual(passphrase, wallet.keystore.get_passphrase(password))
         self.assertEqual(text, wallet.keystore.get_seed(password))
         self.assertEqual(encrypt_file, wallet.storage.is_encrypted())
-        self.assertEqual('bc1q2ccr34wzep58d4239tl3x3734ttle92a8srmuw', wallet.get_receiving_addresses()[0])
+        self.assertEqual('ltc1q2ccr34wzep58d4239tl3x3734ttle92arvely7', wallet.get_receiving_addresses()[0])
 
     async def test_restore_wallet_from_text_no_storage(self):
         text = 'bitter grass shiver impose acquire brush forget axis eager alone wine silver'
@@ -267,57 +267,57 @@ class TestCreateRestoreWallet(WalletTestCase):
         wallet = d['wallet']  # type: Standard_Wallet
         self.assertEqual(None, wallet.storage)
         self.assertEqual(text, wallet.keystore.get_seed(None))
-        self.assertEqual('bc1q3g5tmkmlvxryhh843v4dz026avatc0zzr6h3af', wallet.get_receiving_addresses()[0])
+        self.assertEqual('ltc1q3g5tmkmlvxryhh843v4dz026avatc0zz8xd49e', wallet.get_receiving_addresses()[0])
 
     async def test_restore_wallet_from_text_xpub(self):
         text = 'zpub6nydoME6CFdJtMpzHW5BNoPz6i6XbeT9qfz72wsRqGdgGEYeivso6xjfw8cGcCyHwF7BNW4LDuHF35XrZsovBLWMF4qXSjmhTXYiHbWqGLt'
         d = restore_wallet_from_text__for_unittest(text, path=self.wallet_path, gap_limit=1, config=self.config)
         wallet = d['wallet']  # type: Standard_Wallet
         self.assertEqual(text, wallet.keystore.get_master_public_key())
-        self.assertEqual('bc1q2ccr34wzep58d4239tl3x3734ttle92a8srmuw', wallet.get_receiving_addresses()[0])
+        self.assertEqual('ltc1q2ccr34wzep58d4239tl3x3734ttle92arvely7', wallet.get_receiving_addresses()[0])
 
     async def test_restore_wallet_from_text_xkey_that_is_also_a_valid_electrum_seed_by_chance(self):
         text = 'yprvAJBpuoF4FKpK92ofzQ7ge6VJMtorow3maAGPvPGj38ggr2xd1xCrC9ojUVEf9jhW5L9SPu6fU2U3o64cLrRQ83zaQGNa6YP3ajZS6hHNPXj'
         d = restore_wallet_from_text__for_unittest(text, path=self.wallet_path, gap_limit=1, config=self.config)
         wallet = d['wallet']  # type: Standard_Wallet
         self.assertEqual(text, wallet.keystore.get_master_private_key(password=None))
-        self.assertEqual('3Pa4hfP3LFWqa2nfphYaF7PZfdJYNusAnp', wallet.get_receiving_addresses()[0])
+        self.assertEqual('MVnD1Yo1HNNGNY4ZvaXv4kdxzKtzPzA8FT', wallet.get_receiving_addresses()[0])
 
     async def test_restore_wallet_from_text_xprv(self):
         text = 'zprvAZzHPqhCMt51fskXBUYB1fTFYgG3CBjJUT4WEZTpGw6hPSDWBPZYZARC5sE9xAcX8NeWvvucFws8vZxEa65RosKAhy7r5MsmKTxr3hmNmea'
         d = restore_wallet_from_text__for_unittest(text, path=self.wallet_path, gap_limit=1, config=self.config)
         wallet = d['wallet']  # type: Standard_Wallet
         self.assertEqual(text, wallet.keystore.get_master_private_key(password=None))
-        self.assertEqual('bc1q2ccr34wzep58d4239tl3x3734ttle92a8srmuw', wallet.get_receiving_addresses()[0])
+        self.assertEqual('ltc1q2ccr34wzep58d4239tl3x3734ttle92arvely7', wallet.get_receiving_addresses()[0])
 
     async def test_restore_wallet_from_text_addresses(self):
-        text = 'bc1q2ccr34wzep58d4239tl3x3734ttle92a8srmuw bc1qnp78h78vp92pwdwq5xvh8eprlga5q8gu66960c'
+        text = 'ltc1q2ccr34wzep58d4239tl3x3734ttle92arvely7 ltc1qnp78h78vp92pwdwq5xvh8eprlga5q8gu7xl7hg'
         d = restore_wallet_from_text__for_unittest(text, path=self.wallet_path, config=self.config)
         wallet = d['wallet']  # type: Imported_Wallet
-        self.assertEqual('bc1q2ccr34wzep58d4239tl3x3734ttle92a8srmuw', wallet.get_receiving_addresses()[0])
+        self.assertEqual('ltc1q2ccr34wzep58d4239tl3x3734ttle92arvely7', wallet.get_receiving_addresses()[0])
         self.assertEqual(2, len(wallet.get_receiving_addresses()))
         # also test addr deletion
-        wallet.delete_address('bc1qnp78h78vp92pwdwq5xvh8eprlga5q8gu66960c')
+        wallet.delete_address('ltc1qnp78h78vp92pwdwq5xvh8eprlga5q8gu7xl7hg')
         self.assertEqual(1, len(wallet.get_receiving_addresses()))
 
     async def test_restore_wallet_from_text_privkeys(self):
-        text = 'p2wpkh:L4jkdiXszG26SUYvwwJhzGwg37H2nLhrbip7u6crmgNeJysv5FHL p2wpkh:L24GxnN7NNUAfCXA6hFzB1jt59fYAAiFZMcLaJ2ZSawGpM3uqhb1'
+        text = 'p2wpkh:TAa25Tq4PdzhDKBoVaFaCdV3yxvLrRikQviNkuFQLeYopsVvNTV3 p2wpkh:T7tYQXfHmkSmS3A2eLCrPNHG21JrEFj9NZWbS6f71Z7SLEgRqD97'
         d = restore_wallet_from_text__for_unittest(text, path=self.wallet_path, config=self.config)
         wallet = d['wallet']  # type: Imported_Wallet
         addr0 = wallet.get_receiving_addresses()[0]
-        self.assertEqual('bc1q2ccr34wzep58d4239tl3x3734ttle92a8srmuw', addr0)
-        self.assertEqual('p2wpkh:L4jkdiXszG26SUYvwwJhzGwg37H2nLhrbip7u6crmgNeJysv5FHL',
+        self.assertEqual('ltc1q2ccr34wzep58d4239tl3x3734ttle92arvely7', addr0)
+        self.assertEqual('p2wpkh:TAa25Tq4PdzhDKBoVaFaCdV3yxvLrRikQviNkuFQLeYopsVvNTV3',
                          wallet.export_private_key(addr0, password=None))
         self.assertEqual(2, len(wallet.get_receiving_addresses()))
         # also test addr deletion
-        wallet.delete_address('bc1qnp78h78vp92pwdwq5xvh8eprlga5q8gu66960c')
+        wallet.delete_address('ltc1qnp78h78vp92pwdwq5xvh8eprlga5q8gu7xl7hg')
         self.assertEqual(1, len(wallet.get_receiving_addresses()))
 
 
 class TestWalletPassword(WalletTestCase):
 
     async def test_update_password_of_imported_wallet(self):
-        wallet_str = '{"addr_history":{"1364Js2VG66BwRdkaoxAaFtdPb1eQgn8Dr":[],"15CyDgLffJsJgQrhcyooFH4gnVDG82pUrA":[],"1Exet2BhHsFxKTwhnfdsBMkPYLGvobxuW6":[]},"addresses":{"change":[],"receiving":["1364Js2VG66BwRdkaoxAaFtdPb1eQgn8Dr","1Exet2BhHsFxKTwhnfdsBMkPYLGvobxuW6","15CyDgLffJsJgQrhcyooFH4gnVDG82pUrA"]},"keystore":{"keypairs":{"0344b1588589958b0bcab03435061539e9bcf54677c104904044e4f8901f4ebdf5":"L2sED74axVXC4H8szBJ4rQJrkfem7UMc6usLCPUoEWxDCFGUaGUM","0389508c13999d08ffae0f434a085f4185922d64765c0bff2f66e36ad7f745cc5f":"L3Gi6EQLvYw8gEEUckmqawkevfj9s8hxoQDFveQJGZHTfyWnbk1U","04575f52b82f159fa649d2a4c353eb7435f30206f0a6cb9674fbd659f45082c37d559ffd19bea9c0d3b7dcc07a7b79f4cffb76026d5d4dff35341efe99056e22d2":"5JyVyXU1LiRXATvRTQvR9Kp8Rx1X84j2x49iGkjSsXipydtByUq"},"type":"imported"},"pruned_txo":{},"seed_version":13,"stored_height":-1,"transactions":{},"tx_fees":{},"txi":{},"txo":{},"use_encryption":false,"verified_tx3":{},"wallet_type":"standard","winpos-qt":[100,100,840,405]}'
+        wallet_str = '{"addr_history":{"LMK1a5LKLkLFCEKukwwTrGxPboNvZjDbcY":[],"LPRvUteVjy7MwDYro7o6XJ8SzhaYBJQhoM":[],"LZBc9EVXNXW1aGdrxodATNp9kYeCxufeWb":[]},"addresses":{"change":[],"receiving":["LMK1a5LKLkLFCEKukwwTrGxPboNvZjDbcY","LZBc9EVXNXW1aGdrxodATNp9kYeCxufeWb","LPRvUteVjy7MwDYro7o6XJ8SzhaYBJQhoM"]},"keystore":{"keypairs":{"0344b1588589958b0bcab03435061539e9bcf54677c104904044e4f8901f4ebdf5":"T8hVerMmMsVnq7mkXpEw4krEhXJ5BZNVv7mb4C7LoV8Ni8iywME1","0389508c13999d08ffae0f434a085f4185922d64765c0bff2f66e36ad7f745cc5f":"T96yXyhXKvujT4sMAPihoJJ2sXNTwDircc7WnT2qqXTdBs433uZ5","04575f52b82f159fa649d2a4c353eb7435f30206f0a6cb9674fbd659f45082c37d559ffd19bea9c0d3b7dcc07a7b79f4cffb76026d5d4dff35341efe99056e22d2":"6vHESf1YF8tPdqpGyEiNvibJPRZzKsB4ijYsywkUaz3SfUAnidY"},"type":"imported"},"pruned_txo":{},"seed_version":13,"stored_height":-1,"transactions":{},"tx_fees":{},"txi":{},"txo":{},"use_encryption":false,"verified_tx3":{},"wallet_type":"standard","winpos-qt":[100,100,840,405]}'
         storage = WalletStorage(self.wallet_path)
         db = WalletDB(wallet_str, storage=storage, upgrade=True)
         wallet = Wallet(db, config=self.config)
@@ -333,7 +333,7 @@ class TestWalletPassword(WalletTestCase):
         wallet.check_password("1234")
 
     async def test_update_password_of_standard_wallet(self):
-        wallet_str = '''{"addr_history":{"12ECgkzK6gHouKAZ7QiooYBuk1CgJLJxes":[],"12iR43FPb5M7sw4Mcrr5y1nHKepg9EtZP1":[],"13HT1pfWctsSXVFzF76uYuVdQvcAQ2MAgB":[],"13kG9WH9JqS7hyCcVL1ssLdNv4aXocQY9c":[],"14Tf3qiiHJXStSU4KmienAhHfHq7FHpBpz":[],"14gmBxYV97mzYwWdJSJ3MTLbTHVegaKrcA":[],"15FGuHvRssu1r8fCw98vrbpfc3M4xs5FAV":[],"17oJzweA2gn6SDjsKgA9vUD5ocT1sSnr2Z":[],"18hNcSjZzRcRP6J2bfFRxp9UfpMoC4hGTv":[],"18n9PFxBjmKCGhd4PCDEEqYsi2CsnEfn2B":[],"19a98ZfEezDNbCwidVigV5PAJwrR2kw4Jz":[],"19z3j2ELqbg2pR87byCCt3BCyKR7rc3q8G":[],"1A3XSmvLQvePmvm7yctsGkBMX9ZKKXLrVq":[],"1CmhFe2BN1h9jheFpJf4v39XNPj8F9U6d":[],"1DuphhHUayKzbkdvjVjf5dtjn2ACkz4zEs":[],"1E4ygSNJpWL2uPXZHBptmU2LqwZTqb1Ado":[],"1GTDSjkVc9vaaBBBGNVqTANHJBcoT5VW9z":[],"1GWqgpThAuSq3tDg6uCoLQxPXQNnU8jZ52":[],"1GhmpwqSF5cqNgdr9oJMZx8dKxPRo4pYPP":[],"1J5TTUQKhwehEACw6Jjte1E22FVrbeDmpv":[],"1JWySzjzJhsETUUcqVZHuvQLA7pfFfmesb":[],"1KQHxcy3QUHAWMHKUtJjqD9cMKXcY2RTwZ":[],"1KoxZfc2KsgovjGDxwqanbFEA76uxgYH4G":[],"1KqVEPXdpbYvEbwsZcEKkrA4A2jsgj9hYN":[],"1N16yDSYe76c5A3CoVoWAKxHeAUc8Jhf9J":[],"1Pm8JBhzUJDqeQQKrmnop1Frr4phe1jbTt":[]},"addresses":{"change":["1GhmpwqSF5cqNgdr9oJMZx8dKxPRo4pYPP","1GTDSjkVc9vaaBBBGNVqTANHJBcoT5VW9z","15FGuHvRssu1r8fCw98vrbpfc3M4xs5FAV","1A3XSmvLQvePmvm7yctsGkBMX9ZKKXLrVq","19z3j2ELqbg2pR87byCCt3BCyKR7rc3q8G","1JWySzjzJhsETUUcqVZHuvQLA7pfFfmesb"],"receiving":["14gmBxYV97mzYwWdJSJ3MTLbTHVegaKrcA","13HT1pfWctsSXVFzF76uYuVdQvcAQ2MAgB","19a98ZfEezDNbCwidVigV5PAJwrR2kw4Jz","1J5TTUQKhwehEACw6Jjte1E22FVrbeDmpv","1Pm8JBhzUJDqeQQKrmnop1Frr4phe1jbTt","13kG9WH9JqS7hyCcVL1ssLdNv4aXocQY9c","1KQHxcy3QUHAWMHKUtJjqD9cMKXcY2RTwZ","12ECgkzK6gHouKAZ7QiooYBuk1CgJLJxes","12iR43FPb5M7sw4Mcrr5y1nHKepg9EtZP1","14Tf3qiiHJXStSU4KmienAhHfHq7FHpBpz","1KqVEPXdpbYvEbwsZcEKkrA4A2jsgj9hYN","17oJzweA2gn6SDjsKgA9vUD5ocT1sSnr2Z","1E4ygSNJpWL2uPXZHBptmU2LqwZTqb1Ado","18hNcSjZzRcRP6J2bfFRxp9UfpMoC4hGTv","1KoxZfc2KsgovjGDxwqanbFEA76uxgYH4G","18n9PFxBjmKCGhd4PCDEEqYsi2CsnEfn2B","1CmhFe2BN1h9jheFpJf4v39XNPj8F9U6d","1DuphhHUayKzbkdvjVjf5dtjn2ACkz4zEs","1GWqgpThAuSq3tDg6uCoLQxPXQNnU8jZ52","1N16yDSYe76c5A3CoVoWAKxHeAUc8Jhf9J"]},"keystore":{"seed":"cereal wise two govern top pet frog nut rule sketch bundle logic","type":"bip32","xprv":"xprv9s21ZrQH143K29XjRjUs6MnDB9wXjXbJP2kG1fnRk8zjdDYWqVkQYUqaDtgZp5zPSrH5PZQJs8sU25HrUgT1WdgsPU8GbifKurtMYg37d4v","xpub":"xpub661MyMwAqRbcEdcCXm1sTViwjBn28zK9kFfrp4C3JUXiW1sfP34f6HA45B9yr7EH5XGzWuTfMTdqpt9XPrVQVUdgiYb5NW9m8ij1FSZgGBF"},"pruned_txo":{},"seed_type":"standard","seed_version":13,"stored_height":-1,"transactions":{},"tx_fees":{},"txi":{},"txo":{},"use_encryption":false,"verified_tx3":{},"wallet_type":"standard","winpos-qt":[619,310,840,405]}'''
+        wallet_str = '''{"addr_history":{"LLT9wyJ9BLXsA7riHYi75ZFfxDZxS32oAG":[],"LLwNKFZDfjbB8jkWnzqPF2r3XsBxHu3mHF":[],"LMWQH2yLhZ7VnHx9RF6CpvZPd8ySV5Lanh":[],"LMyDQiayPVgAxmtmfU1B9Mh98GwozAPdCj":[],"LNgcK42YMxmW9FADVuhx4Bm3sWCPTPydxX":[],"LNuiTArKDn23okCnUaHLdUQMfVrvjvjMnU":[],"LPUEAWEFxY956wMN7H8E8ctRpFiM528kSn":[],"LS2GG9wz7M29h2S2Vp9TCVGr1ppHuMvQeL":[],"LSvKsf3Q55rUdtzBmoEjEqDEt2j5NEo9CF":[],"LT16eUG1pRZFXWKDZLCXWrcdvEa9vWyQz8":[],"LTo6Pmy4jeTRr1dsodhym6SvXADh7b69Av":[],"LUCzzEYAvFv65DpGn7BWA4EyBXnQ5evfQJ":[],"LUGUhzEAVatT2jTH9ktAYmF7jMvbPaECbC":[],"LKRixTwrG2FkQYPoRxHxLw6ujam1EHbQAf":[],"LY8mxubJfda3rZL5udixMexVzEXUsqGaNP":[],"LYHvweg8uAa6ACDiTKpC3V6749vk1g26k1":[],"LagAhx4KgpAdpysLSWV8jBS3WPz5YsDTXU":[],"Lajnx2mXFZgtJguqH3C6cS29jck4ago9vq":[],"Lavj6A9GKjrtdVL1KwHeqyCPYAkhyZoFVE":[],"LcJQigi9nbtkUxu6GSjBv2HnETs8jtLNPR":[],"LcjviD3pPN7HiHAn1dYbBwU6NLBwJJrSXZ":[],"LddFDqGsV8XDm9yUf2J37EDNZXtth3N4UF":[],"Le2upsurQXvsBXxP95pt4cJzNKUC6NQTuK":[],"Le4SVbqTuFnyVQe2jkDd2sDpNF79ngHorT":[],"LgE4ERkNimLfKxjMydnoSM23rNqtG5pPYc":[],"Lhz5ZQ1pYxTtuD6V2un762Kd4HByp4QwXB":[]},"addresses":{"change":["Lavj6A9GKjrtdVL1KwHeqyCPYAkhyZoFVE","LagAhx4KgpAdpysLSWV8jBS3WPz5YsDTXU","LPUEAWEFxY956wMN7H8E8ctRpFiM528kSn","LUGUhzEAVatT2jTH9ktAYmF7jMvbPaECbC","LUCzzEYAvFv65DpGn7BWA4EyBXnQ5evfQJ","LcjviD3pPN7HiHAn1dYbBwU6NLBwJJrSXZ"],"receiving":["LNuiTArKDn23okCnUaHLdUQMfVrvjvjMnU","LMWQH2yLhZ7VnHx9RF6CpvZPd8ySV5Lanh","LTo6Pmy4jeTRr1dsodhym6SvXADh7b69Av","LcJQigi9nbtkUxu6GSjBv2HnETs8jtLNPR","Lhz5ZQ1pYxTtuD6V2un762Kd4HByp4QwXB","LMyDQiayPVgAxmtmfU1B9Mh98GwozAPdCj","LddFDqGsV8XDm9yUf2J37EDNZXtth3N4UF","LLT9wyJ9BLXsA7riHYi75ZFfxDZxS32oAG","LLwNKFZDfjbB8jkWnzqPF2r3XsBxHu3mHF","LNgcK42YMxmW9FADVuhx4Bm3sWCPTPydxX","Le4SVbqTuFnyVQe2jkDd2sDpNF79ngHorT","LS2GG9wz7M29h2S2Vp9TCVGr1ppHuMvQeL","LYHvweg8uAa6ACDiTKpC3V6749vk1g26k1","LSvKsf3Q55rUdtzBmoEjEqDEt2j5NEo9CF","Le2upsurQXvsBXxP95pt4cJzNKUC6NQTuK","LT16eUG1pRZFXWKDZLCXWrcdvEa9vWyQz8","LKRixTwrG2FkQYPoRxHxLw6ujam1EHbQAf","LY8mxubJfda3rZL5udixMexVzEXUsqGaNP","Lajnx2mXFZgtJguqH3C6cS29jck4ago9vq","LgE4ERkNimLfKxjMydnoSM23rNqtG5pPYc"]},"keystore":{"seed":"cereal wise two govern top pet frog nut rule sketch bundle logic","type":"bip32","xprv":"xprv9s21ZrQH143K29XjRjUs6MnDB9wXjXbJP2kG1fnRk8zjdDYWqVkQYUqaDtgZp5zPSrH5PZQJs8sU25HrUgT1WdgsPU8GbifKurtMYg37d4v","xpub":"xpub661MyMwAqRbcEdcCXm1sTViwjBn28zK9kFfrp4C3JUXiW1sfP34f6HA45B9yr7EH5XGzWuTfMTdqpt9XPrVQVUdgiYb5NW9m8ij1FSZgGBF"},"pruned_txo":{},"seed_type":"standard","seed_version":13,"stored_height":-1,"transactions":{},"tx_fees":{},"txi":{},"txo":{},"use_encryption":false,"verified_tx3":{},"wallet_type":"standard","winpos-qt":[619,310,840,405]}'''
         storage = WalletStorage(self.wallet_path)
         db = WalletDB(wallet_str, storage=storage, upgrade=True)
         wallet = Wallet(db, config=self.config)
@@ -362,7 +362,7 @@ class TestWalletPassword(WalletTestCase):
         wallet.check_password("1234")
 
     async def test_update_password_with_app_restarts(self):
-        wallet_str = '{"addr_history":{"1364Js2VG66BwRdkaoxAaFtdPb1eQgn8Dr":[],"15CyDgLffJsJgQrhcyooFH4gnVDG82pUrA":[],"1Exet2BhHsFxKTwhnfdsBMkPYLGvobxuW6":[]},"addresses":{"change":[],"receiving":["1364Js2VG66BwRdkaoxAaFtdPb1eQgn8Dr","1Exet2BhHsFxKTwhnfdsBMkPYLGvobxuW6","15CyDgLffJsJgQrhcyooFH4gnVDG82pUrA"]},"keystore":{"keypairs":{"0344b1588589958b0bcab03435061539e9bcf54677c104904044e4f8901f4ebdf5":"L2sED74axVXC4H8szBJ4rQJrkfem7UMc6usLCPUoEWxDCFGUaGUM","0389508c13999d08ffae0f434a085f4185922d64765c0bff2f66e36ad7f745cc5f":"L3Gi6EQLvYw8gEEUckmqawkevfj9s8hxoQDFveQJGZHTfyWnbk1U","04575f52b82f159fa649d2a4c353eb7435f30206f0a6cb9674fbd659f45082c37d559ffd19bea9c0d3b7dcc07a7b79f4cffb76026d5d4dff35341efe99056e22d2":"5JyVyXU1LiRXATvRTQvR9Kp8Rx1X84j2x49iGkjSsXipydtByUq"},"type":"imported"},"pruned_txo":{},"seed_version":13,"stored_height":-1,"transactions":{},"tx_fees":{},"txi":{},"txo":{},"use_encryption":false,"verified_tx3":{},"wallet_type":"standard","winpos-qt":[100,100,840,405]}'
+        wallet_str = '{"addr_history":{"LMK1a5LKLkLFCEKukwwTrGxPboNvZjDbcY":[],"LPRvUteVjy7MwDYro7o6XJ8SzhaYBJQhoM":[],"LZBc9EVXNXW1aGdrxodATNp9kYeCxufeWb":[]},"addresses":{"change":[],"receiving":["LMK1a5LKLkLFCEKukwwTrGxPboNvZjDbcY","LZBc9EVXNXW1aGdrxodATNp9kYeCxufeWb","LPRvUteVjy7MwDYro7o6XJ8SzhaYBJQhoM"]},"keystore":{"keypairs":{"0344b1588589958b0bcab03435061539e9bcf54677c104904044e4f8901f4ebdf5":"T8hVerMmMsVnq7mkXpEw4krEhXJ5BZNVv7mb4C7LoV8Ni8iywME1","0389508c13999d08ffae0f434a085f4185922d64765c0bff2f66e36ad7f745cc5f":"T96yXyhXKvujT4sMAPihoJJ2sXNTwDircc7WnT2qqXTdBs433uZ5","04575f52b82f159fa649d2a4c353eb7435f30206f0a6cb9674fbd659f45082c37d559ffd19bea9c0d3b7dcc07a7b79f4cffb76026d5d4dff35341efe99056e22d2":"6vHESf1YF8tPdqpGyEiNvibJPRZzKsB4ijYsywkUaz3SfUAnidY"},"type":"imported"},"pruned_txo":{},"seed_version":13,"stored_height":-1,"transactions":{},"tx_fees":{},"txi":{},"txo":{},"use_encryption":false,"verified_tx3":{},"wallet_type":"standard","winpos-qt":[100,100,840,405]}'
         storage = WalletStorage(self.wallet_path)
         db = WalletDB(wallet_str, storage=storage, upgrade=True)
         wallet = Wallet(db, config=self.config)

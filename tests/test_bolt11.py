@@ -77,20 +77,20 @@ class TestBolt11(ElectrumTestCase):
             (LnAddr(date=timestamp, paymenthash=RHASH, payment_secret=PAYMENT_SECRET, amount=24, tags=[
                 ('r', [(unhexlify('029e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255'), unhexlify('0102030405060708'), 1, 20, 3),
                        (unhexlify('039e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255'), unhexlify('030405060708090a'), 2, 30, 4)]),
-                ('f', '1RustyRX2oai4EYYDpQGWvEL62BBGqN9T'),
+                ('f', 'LKes97HFbh3dxrvhiMohYXyzYJPTK37n7u'),
                 ('h', longdescription),
                 ('9', 0x28200)]),
              "lnbc241ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygsr9yq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvpeuqafqxu92d8lr6fvg0r5gv0heeeqgcrqlnm6jhphu9y00rrhy4grqszsvpcgpy9qqqqqqgqqqqq7qqzqfpp3qjmp7lwpagxun9pygexvgpjdc4jdj85fhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqs9qy9qsqfnk063vsrgjx7l6td6v42skuxql7epn5tmrl4qte2e78nqnsjlgjg3sgkxreqex5fw4c9chnvtc2hykqnyxr84zwfr8f3d9q3h0nfdgqenlzvj"),
-            (LnAddr(date=timestamp, paymenthash=RHASH, payment_secret=PAYMENT_SECRET,  amount=24, tags=[('f', '3EktnHQD7RiAE6uzMj2ZifT9YgRrkSgzQX'), ('h', longdescription), ('9', 0x28200)]),
+            (LnAddr(date=timestamp, paymenthash=RHASH, payment_secret=PAYMENT_SECRET,  amount=24, tags=[('f', 'MLy36ApB4YZb2cBtTc1uYJhYsP2JkYokaf'), ('h', longdescription), ('9', 0x28200)]),
              "lnbc241ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygsfppj3a24vwu6r8ejrss3axul8rxldph2q7z9hp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqs9qy9qsqqf6z4r7ruzr5txm5ln4netwa2f4x233tud7jy8gxrynyx07rxt7qm92yk2krlgwr7d8jknglur75sujeyapmda5nf3femrk2mep8a2cp4hlvup"),
-            (LnAddr(date=timestamp, paymenthash=RHASH, payment_secret=PAYMENT_SECRET,  amount=24, tags=[('f', 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4'), ('h', longdescription), ('9', 0x28200)]),
+            (LnAddr(date=timestamp, paymenthash=RHASH, payment_secret=PAYMENT_SECRET,  amount=24, tags=[('f', 'ltc1qw508d6qejxtdg4y5r3zarvary0c5xw7kgmn4n9'), ('h', longdescription), ('9', 0x28200)]),
              "lnbc241ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygsfppqw508d6qejxtdg4y5r3zarvary0c5xw7khp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqs9qy9qsqy4wp73jma5uktd9y7yha56f98n2k0hxgnvp2qdcury00dapps3k3urgfy8tvv8jzwcafpy576msk5xx2hladf06m3s5mgx5msn4elfqqaaqjhk"),
-            (LnAddr(date=timestamp, paymenthash=RHASH, payment_secret=PAYMENT_SECRET,  amount=24, tags=[('f', 'bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3'), ('h', longdescription), ('9', 0x28200)]),
+            (LnAddr(date=timestamp, paymenthash=RHASH, payment_secret=PAYMENT_SECRET,  amount=24, tags=[('f', 'ltc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qmu8tk5'), ('h', longdescription), ('9', 0x28200)]),
              "lnbc241ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygsfp4qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqs9qy9qsqgt4gg9uktlpgnnuvczazusp5uwjv78na305ucsw06c8uk58e5stjqj9sz7fgavw0z688alt364js72mc9mg8yumhpes2dsmq5k9nr5qqddykxy"),
             (LnAddr(date=timestamp, paymenthash=RHASH, payment_secret=PAYMENT_SECRET,  amount=24, tags=[('n', PUBKEY), ('h', longdescription), ('9', 0x28200)]),
              "lnbc241ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygsnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66hp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqs9qy9qsq2y235rxw7v0gkn2t9ehc742tm3p22q2yjjykq4d85ze6g62yk60navxqz0ga96sqrszju8nlfajthem4gngxvyz4hwy39j4nqm8kv0qq9znxs7"),
             (LnAddr(date=timestamp, paymenthash=RHASH, payment_secret=PAYMENT_SECRET,  amount=24, tags=[('h', longdescription), ('9', 2 + (1 << 9) + (1 << 15))]),
-             "lnbc241ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygshp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqs9qypqszrwfgrl5k3rt4q4mclc8t00p2tcjsf9pmpcq6lu5zhmampyvk43fk30eqpdm8t5qmdpzan25aqxqaqdzmy0smrtduazjcxx975vz78ccpx0qhev"),
+             "lnltc241ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygshp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqs9qypqszxkdza3c2a8mx7htenxyj28tl9uhs6zd8pz8nec3n2s7k0zzas4cn6jcgnk4j49zu552kwlg6nz4lcl847d8g26nf6lxn4c0y7jmkkjsqt2wsey"),
             (LnAddr(date=timestamp, paymenthash=RHASH, payment_secret=PAYMENT_SECRET,  amount=24, tags=[('h', longdescription), ('9', 10 + (1 << 8) + (1 << 15))]),
              "lnbc241ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygshp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqs9qypqg2wans8f6vkfd3l7zjv547hlc7wd7eqyxfwhtdudnkkgrpk6p9ffykwrvdtwm0aakaxujurdxgd7cllnfypmj22cvy7z333udg6zncgacqzmd2z9"),
             (LnAddr(date=timestamp, paymenthash=RHASH, payment_secret=PAYMENT_SECRET,  amount=24, tags=[('h', longdescription), ('9', 10 + (1 << 9) + (1 << 15))]),
@@ -102,13 +102,13 @@ class TestBolt11(ElectrumTestCase):
         # old wallets that have these invoices saved (as paid/expired), could not be opened (though we could do a db upgrade and delete them).
         tests.extend([
             (LnAddr(date=timestamp, paymenthash=RHASH, tags=[('d', '')]),
-             "lnbc1ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdqqd9n3kwjjwglnfne5p4rvkze998m3xcxrc8kunl5khkchlaqhwhlyztuuwkrglv47mqg96mcqjjx70hh9luaj4te0u4ww6aclxwve3fqpkmdxlj"),
+             "lnltc1ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdqqtxf4xmgwm6d57t2u47xcknw8mcmxgnx24c4vq3uxft5f0sgx4kv478rt4j350n2hjlq0qqwgkwqv54ujrjtmw2gahwyrzfqq572r64qpsrpjy4"),
             (LnAddr(date=timestamp, paymenthash=RHASH, amount=Decimal('0.001'), tags=[('d', '1 cup coffee'), ('x', 60)]),
-             "lnbc1m1ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jsxqzpu9rflz25dx0qw6kdg05u0c5hdc30yq6ga6ew4pz86n244va45nchns9zrs3wjxznsqnt37hz7pswvc56wvuhxcjyd6k3lqf4ujynyxuspmvr078"),
+             "lnltc1m1ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jsxqzpuve3yl8e96v8ccdy5lgf4z8vdpmkzj228v2qxknwws2r00cwvqwhp2agvlqw4eklf8sjnvkeama0ke8nrlrc6nd4twspv5zhuy7hzqxgqd8tsep"),
             (LnAddr(date=timestamp, paymenthash=RHASH, amount=Decimal('1'), tags=[('h', longdescription)]),
-             "lnbc11ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqs2qjafckq94q3js6lvqz2kmenn9ysjejyj8fm4hlx0xtqhaxfzlxjappkgp0hmm40dnuan4v3jy83lqjup2n0fdzgysg049y9l9uc98qq07kfd3"),
+             "lnltc11ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsz9dyzv7qgv60vrvj6hu8cyhj4epls6hwtgzgew82sqyhv0cjhnmjrr627cdjp4ejce0fps0q83505fjrh43enpwje3hty4kpu244trqp8snnu3"),
             (LnAddr(date=timestamp, paymenthash=RHASH, net=constants.BitcoinTestnet, tags=[('f', 'mk2QpYatsKicvFVuTAQLBryyccRXMUaGHP'), ('h', longdescription)]),
-             "lntb1ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqfpp3x9et2e20v6pu37c5d9vax37wxq72un98hp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsr9zktgu78k8p9t8555ve37qwfvqn6ga37fnfwhgexmf20nzdpmuhwvuv7zra3xrh8y2ggxxuemqfsgka9x7uzsrcx8rfv85c8pmhq9gq4sampn"),
+             "lntltc1ps9zprzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqfpp3x9et2e20v6pu37c5d9vax37wxq72un98hp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqs9pqjahusc5f4737qr4ke4tf6mnswpt689y07jhw8usmus07q2pd43f7ya5t82d9aq8ay2e7kwuat0wzp7hhfla9ghg9ytt38r8pynrgqdt4rpe"),
 
         ])
 
@@ -142,7 +142,7 @@ class TestBolt11(ElectrumTestCase):
                           net=constants.BitcoinSimnet)
         self.assertEqual(144, lnaddr.get_min_final_cltv_delta())
 
-        lnaddr = lndecode("lntb15u1p0m6lzupp5zqjthgvaad9mewmdjuehwddyze9d8zyxcc43zhaddeegt37sndgsdq4xysyymr0vd4kzcmrd9hx7cqp7xqrrss9qy9qsqsp5vlhcs24hwm747w8f3uau2tlrdkvjaglffnsstwyamj84cxuhrn2s8tut3jqumepu42azyyjpgqa4w9w03204zp9h4clk499y2umstl6s29hqyj8vv4as6zt5567ux7l3f66m8pjhk65zjaq2esezk7ll2kcpljewkg",
+        lnaddr = lndecode("lntltc15u1p0m6lzupp5zqjthgvaad9mewmdjuehwddyze9d8zyxcc43zhaddeegt37sndgsdq4xysyymr0vd4kzcmrd9hx7cqp7xqrrss9qy9qsqsp5vlhcs24hwm747w8f3uau2tlrdkvjaglffnsstwyamj84cxuhrn2sd9wnsselxlsqyz5ktk0dafjj77ag862qqeqmldxd6nzx7z2q2ttsu073xujdvjjzwcullaxh5mfz3qmd558cf7l8m0e4rkq227cnsvcp2lx59z",
                           net=constants.BitcoinTestnet)
         self.assertEqual(30, lnaddr.get_min_final_cltv_delta())
 
@@ -160,12 +160,12 @@ class TestBolt11(ElectrumTestCase):
         self.assertEqual(LnFeatures(33282), lnaddr.get_features())
 
     def test_payment_secret(self):
-        lnaddr = lndecode("lnbc25m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygsdq5vdhkven9v5sxyetpdees9q5sqqqqqqqqqqqqqqqpqsqvvh7ut50r00p3pg34ea68k7zfw64f8yx9jcdk35lh5ft8qdr8g4r0xzsdcrmcy9hex8un8d8yraewvhqc9l0sh8l0e0yvmtxde2z0hgpzsje5l")
+        lnaddr = lndecode("lnltc25m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygsdq5vdhkven9v5sxyetpdees9q5sqqqqqqqqqqqqqqqpqsq8da9nsp6wq9ugrglqwvgzqn6tj6wr0u0fzwg57trnjd070ef6f6ykh6kykgtdg9umljul8ah85sy80jgz7f3jr5y2uu756s4a8pq80qpxe4kez")
         self.assertEqual((1 << 9) + (1 << 15) + (1 << 99), lnaddr.get_tag('9'))
         self.assertEqual(b"\x11" * 32, lnaddr.payment_secret)
 
     def test_validate_and_compare_features(self):
-        lnaddr = lndecode("lnbc25m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygsdq5vdhkven9v5sxyetpdees9q5sqqqqqqqqqqqqqqqpqsqvvh7ut50r00p3pg34ea68k7zfw64f8yx9jcdk35lh5ft8qdr8g4r0xzsdcrmcy9hex8un8d8yraewvhqc9l0sh8l0e0yvmtxde2z0hgpzsje5l")
+        lnaddr = lndecode("lnltc25m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygsdq5vdhkven9v5sxyetpdees9q5sqqqqqqqqqqqqqqqpqsq8da9nsp6wq9ugrglqwvgzqn6tj6wr0u0fzwg57trnjd070ef6f6ykh6kykgtdg9umljul8ah85sy80jgz7f3jr5y2uu756s4a8pq80qpxe4kez")
         lnaddr.validate_and_compare_features(LnFeatures((1 << 8) + (1 << 14) + (1 << 15)))
         with self.assertRaises(IncompatibleLightningFeatures):
             lnaddr.validate_and_compare_features(LnFeatures((1 << 8) + (1 << 14) + (1 << 16)))
