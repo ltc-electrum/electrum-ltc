@@ -57,7 +57,7 @@ except ImportError as e:
 
 MSG_NEEDS_FW_UPDATE_GENERIC = _('Firmware version too old. Please update at') + \
     ' https://www.ledger.com'
-MSG_NEEDS_FW_UPDATE_SEGWIT = _('Firmware version (or "Bitcoin" app) too old for Segwit support. Please update at') + \
+MSG_NEEDS_FW_UPDATE_SEGWIT = _('Firmware version (or "Litecoin" app) too old for Segwit support. Please update at') + \
     ' https://www.ledger.com'
 MULTI_OUTPUT_SUPPORT = '1.1.4'
 SEGWIT_SUPPORT = '1.1.10'
@@ -247,7 +247,7 @@ def get_bip44_chain(chain: 'Chain') -> int:
     :param chain: The chain
     """
     if chain == Chain.MAIN:
-        return 0
+        return 2
     else:
         return 1
 
