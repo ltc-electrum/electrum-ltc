@@ -23,7 +23,7 @@ is a TL;DR:
 
 ```
 $ sudo apt-get install libsecp256k1-dev
-$ ELECTRUM_ECC_DONT_COMPILE=1 python3 -m pip install --user ".[gui,crypto]"
+$ ELECTRUM_ECC_DONT_COMPILE=1 uv pip install ".[gui,crypto]"
 ```
 
 ### Not pure-python dependencies
@@ -32,7 +32,7 @@ $ ELECTRUM_ECC_DONT_COMPILE=1 python3 -m pip install --user ".[gui,crypto]"
 
 If you want to use the Qt interface, install the Qt dependencies:
 ```
-$ sudo apt-get install python3-pyqt6
+$ uv pip install PyQt6
 ```
 
 #### libsecp256k1
@@ -59,7 +59,7 @@ Due to the need for fast symmetric ciphers,
 [cryptography](https://github.com/pyca/cryptography) is required.
 Install from your package manager (or from pip):
 ```
-$ sudo apt-get install python3-cryptography
+$ uv pip install cryptography
 ```
 
 #### hardware-wallet support
@@ -80,20 +80,24 @@ $ ./run_electrum
 
 You can also install Electrum on your system, by running this command:
 ```
-$ sudo apt-get install python3-setuptools python3-pip
-$ python3 -m pip install --user .
+$ sudo apt-get install python3-setuptools
+$ uv pip install .
 ```
 
 This will download and install the Python dependencies used by
 Electrum instead of using the 'packages' directory.
-It will also place an executable named `electrum` in `~/.local/bin`,
-so make sure that is on your `PATH` variable.
+It will also place an executable named `electrum` in your PATH.
 
 
 ### Development version (git clone)
 
 _(For OS-specific instructions, see [here for Windows](contrib/build-wine/README_windows.md),
 and [for macOS](contrib/osx/README_macos.md))_
+
+First, install uv if you haven't already:
+```
+$ curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
 Check out the code from GitHub:
 ```
@@ -104,7 +108,7 @@ $ git submodule update --init
 
 Run install (this should install dependencies):
 ```
-$ python3 -m pip install --user -e .
+$ uv pip install -e .
 ```
 
 Create translations (optional):
@@ -122,12 +126,12 @@ $ ./run_electrum
 
 Run unit tests with `pytest`:
 ```
-$ pytest tests -v
+$ uv run pytest tests -v
 ```
 
 To run a single file, specify it directly like this:
 ```
-$ pytest tests/test_bitcoin.py -v
+$ uv run pytest tests/test_bitcoin.py -v
 ```
 
 ## Creating Binaries
