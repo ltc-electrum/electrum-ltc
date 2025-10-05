@@ -26,11 +26,12 @@ import time
 from typing import Optional, Dict, Mapping, Sequence, TYPE_CHECKING
 
 from . import util
-from .bitcoin import hash_encode
+from .bitcoin import hash_decode, hash_encode
 from .crypto import sha256d
 from . import constants
 from .util import bfh, with_lock
 from .logging import get_logger, Logger
+from .mwebd import scrypt
 
 if TYPE_CHECKING:
     from .simple_config import SimpleConfig
@@ -92,7 +93,8 @@ def hash_raw_header(header: bytes) -> str:
     return hash_encode(sha256d(header))
 
 
-pow_hash_header = hash_header
+def pow_hash_header(header: dict) -> str:
+    return hash_decode(scrypt(serialize_header(header).hex())).hex()
 
 
 # key: blockhash hex at forkpoint

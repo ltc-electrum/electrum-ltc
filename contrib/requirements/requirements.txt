@@ -8,6 +8,7 @@ certifi
 jsonpatch
 electrum_ecc>=0.0.4,<0.1
 electrum_aionostr>=0.0.11,<0.1
+grpcio
 
 # - upper limit to avoid needing hatchling at build-time :/
 #   (however newer versions should work at runtime)
