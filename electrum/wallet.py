@@ -67,6 +67,7 @@ from .wallet_db import WalletDB
 from .transaction import (
     Transaction, TxInput, TxOutput, PartialTransaction, PartialTxInput, PartialTxOutput, TxOutpoint, Sighash
 )
+from .blockchain import hash_header
 from .plugin import run_hook
 from .address_synchronizer import (
     AddressSynchronizer, TX_HEIGHT_LOCAL, TX_HEIGHT_UNCONF_PARENT, TX_HEIGHT_UNCONFIRMED, TX_HEIGHT_FUTURE,
@@ -81,6 +82,8 @@ from .lntransport import extract_nodeid
 from .descriptor import Descriptor
 from .txbatcher import TxBatcher
 from .submarine_swaps import MIN_SWAP_AMOUNT_SAT
+from . import mwebd
+from .mwebd_pb2 import AddressRequest, SpentRequest, StatusRequest, UtxosRequest
 
 if TYPE_CHECKING:
     from .network import Network
@@ -422,6 +425,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         self._tx_parents_cache = {}
         self._default_labels = {}
         self._accounting_addresses = set()  # addresses counted as ours after successful sweep
+        self._pending_mweb_output_ids = set()
 
         self.taskgroup = None
 
@@ -918,7 +922,9 @@ class Abstract_Wallet(ABC, Logger, EventListener):
                     v_out_mine += txout.value
                     is_relevant = True
         delta = v_out_mine - v_in_mine
-        if v_in is not None:
+        if v_in == 0 or v_out == 0:
+            fee = 0
+        elif v_in is not None:
             fee = v_in - v_out
         else:
             fee = None
@@ -949,7 +955,8 @@ class Abstract_Wallet(ABC, Logger, EventListener):
                              and (tx_we_already_have_in_db is None or not tx_we_already_have_in_db.is_complete()))
         label = ''
         tx_mined_status = self.adb.get_tx_height(tx_hash)
-        can_remove = ((tx_mined_status.height() in [TX_HEIGHT_FUTURE, TX_HEIGHT_LOCAL])
+        can_remove = ((tx_mined_status.height() in [TX_HEIGHT_FUTURE, TX_HEIGHT_LOCAL,
+                                                    TX_HEIGHT_UNCONFIRMED])
                       # otherwise 'height' is unreliable (typically LOCAL):
                       and is_relevant
                       # don't offer during common signing flow, e.g. when watch-only wallet starts creating a tx:
@@ -1384,6 +1391,49 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             status = self.get_invoice_status(invoice)
             util.trigger_callback('invoice_status', self, invoice_key, status)
 
+    async def _get_tx_mined_info(self, height):
+        header = None
+        while header is None:
+            await asyncio.sleep(0.1)
+            async with self.network.bhi_lock:
+                header = self.network.blockchain().read_header(height)
+        return TxMinedInfo(height=height, timestamp=header.get('timestamp'),
+                           txpos=0, header_hash=hash_header(header))
+
+    async def _check_mweb_prevout(self, prevout):
+        output_id, target = [], set()
+        tx_hash = prevout.txid.hex()
+        tx = self.db.get_transaction(tx_hash)
+        txout = tx.outputs()[prevout.out_idx]
+        if txout.mweb_output_id:
+            output_id.append(txout.mweb_output_id)
+            spending_tx_hash = self.db.get_spent_outpoint(tx_hash, prevout.out_idx)
+            if spending_tx_hash and self.adb.get_tx_height(spending_tx_hash).conf:
+                target.add(txout.mweb_output_id)
+        for txin in tx.inputs():
+            tx2 = self.db.get_transaction(txin.prevout.txid.hex())
+            txout = tx2.outputs()[txin.prevout.out_idx]
+            if txout.mweb_output_id:
+                output_id.append(txout.mweb_output_id)
+                target.add(txout.mweb_output_id)
+        if not output_id: return
+        stub = mwebd.stub_async()
+        resp = await stub.Spent(SpentRequest(output_id=output_id))
+        if set(resp.output_id) == target:
+            resp = await stub.Status(StatusRequest())
+            height = resp.mweb_utxos_height
+            tx_info = await self._get_tx_mined_info(height)
+            with self.adb.lock:
+                tx_info2 = self.adb.get_tx_height(tx_hash)
+                if tx_info2.conf: height = tx_info2.height
+                for txout in tx.outputs():
+                    if self.db.is_addr_in_history(txout.address):
+                        hist = dict(self.db.get_addr_history(txout.address))
+                        hist[tx_hash] = height
+                        self.db.set_addr_history(txout.address, list(hist.items()))
+                if not tx_info2.conf:
+                    self.adb.add_verified_tx(tx_hash, tx_info)
+
     def _is_onchain_invoice_paid(self, invoice: BaseInvoice) -> Tuple[bool, Optional[int], Sequence[str]]:
         """Returns whether on-chain invoice/request is satisfied, num confs required txs have,
         and list of relevant TXIDs.
@@ -1408,6 +1458,9 @@ class Abstract_Wallet(ABC, Logger, EventListener):
                     if 0 < tx_height.height() <= invoice.height:  # exclude txs older than invoice
                         continue
                     confs_and_values.append((tx_height.conf or 0, v))
+                    if not tx_height.conf and self.network:
+                        asyncio.run_coroutine_threadsafe(self._check_mweb_prevout(prevout),
+                                                         self.network.asyncio_loop)
                 # check that there is at least one TXO, and that they pay enough.
                 # note: "at least one TXO" check is needed for zero amount invoice (e.g. OP_RETURN)
                 vsum = 0
@@ -2055,6 +2108,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
                 inputs=txi,
                 outputs=txo,
                 change_addrs=change_addrs,
+                keystore=self.keystore,
                 fee_estimator_vb=fee_estimator,
                 dust_threshold=self.dust_threshold(),
                 BIP69_sort=BIP69_sort)
@@ -2096,7 +2150,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             input_amount = sum(c.value_sats() for c in tx_inputs)  # may change if reserve is needed
             allocated_amount = sum(o.value for o in outputs if not parse_max_spend(o.value))
             to_distribute = input_amount - allocated_amount
-            distribute_amount(to_distribute - fee)
+            distribute_amount(to_distribute)
 
             if self.should_keep_reserve_utxo(tx_inputs, outputs, is_anchor_channel_opening):
                 # check if any input of the tx is == LN_UTXO_RESERVE, then we can just remove the input
@@ -2125,6 +2179,11 @@ class Abstract_Wallet(ABC, Logger, EventListener):
                 distribute_amount(to_distribute - fee)
 
             tx = PartialTransaction.from_io(list(tx_inputs), list(outputs))
+            tx, fee = mwebd.create(tx, self.keystore, fee_estimator)
+            if tx.inputs(): fee += fee_estimator(tx.estimated_size())
+            distribute_amount(to_distribute - fee)
+            tx = PartialTransaction.from_io(list(tx_inputs), list(outputs))
+            tx, _ = mwebd.create(tx, self.keystore, fee_estimator)
 
         assert len(tx.outputs()) > 0, "any bitcoin tx must have at least 1 output by consensus"
         if locktime is None:
@@ -2262,7 +2321,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             self.set_reserved_state_of_address(addr, reserved=reserved)
 
     def can_export(self):
-        return not self.is_watching_only() and hasattr(self.keystore, 'get_private_key')
+        return not self.is_watching_only() and hasattr(self.keystore, 'get_private_key') and self.txin_type != 'mweb'
 
     def get_bumpfee_strategies_for_tx(
         self,
@@ -2620,6 +2679,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             txin: PartialTxInput,
             *,
             address: str = None,
+            signing: bool = False,
     ) -> None:
         # - We prefer to include UTXO (full tx), even for segwit inputs (see #6198).
         # - For witness v0 inputs, we include *both* UTXO and WITNESS_UTXO. UTXO is a strict superset,
@@ -2636,8 +2696,21 @@ class Abstract_Wallet(ABC, Logger, EventListener):
                 txin_value = item[2]
                 txin.witness_utxo = TxOutput.from_address_and_value(address, txin_value)
         # add utxo
-        if txin.utxo is None:
+        if txin.utxo is None or signing:
             txin.utxo = self.db.get_transaction(txin.prevout.txid.hex())
+            if txin.utxo and signing and self.txin_type != 'mweb':
+                has_mweb_output = any(o.mweb_output_id for o in txin.utxo.outputs())
+                has_canonical_output = any(not o.mweb_output_id for o in txin.utxo.outputs())
+                if has_mweb_output and has_canonical_output:
+                    try:  # pegin with change, need broadcasted rawtx for Ledger
+                        tx = Transaction(self.network.run_from_another_thread(
+                            self.network.get_transaction(txin.prevout.txid.hex(), timeout=10)))
+                        txout = txin.utxo.outputs()[txin.prevout.out_idx]
+                        indices = lambda tx: [i for i, o in enumerate(tx.outputs()) if o == txout]
+                        out_idx = indices(tx)[indices(txin.utxo).index(txin.prevout.out_idx)]
+                        txin.prevout = TxOutpoint(txin.prevout.txid, out_idx)
+                        txin.utxo = tx
+                    except: ()
         # Maybe remove witness_utxo. witness_utxo should not be present for non-segwit inputs.
         # If it is present, it might be because another electrum instance added it when sharing the psbt via QR code.
         # If we have the full utxo available, we can remove it without loss of information.
@@ -2657,6 +2730,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             txin: TxInput,
             *,
             only_der_suffix: bool = False,
+            signing: bool = False,
     ) -> None:
         """Populates the txin, using info the wallet already has.
         That is, network requests are *not* done to fetch missing prev txs!
@@ -2668,7 +2742,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         if not isinstance(txin, PartialTxInput):
             return
         address = self.adb.get_txin_address(txin)
-        self._add_input_utxo_info(txin, address=address)
+        self._add_input_utxo_info(txin, address=address, signing=signing)
         is_mine = self.is_mine(address)
         if not is_mine:
             is_mine = self._learn_derivation_path_for_address_from_txinout(txin, address)
@@ -2678,6 +2752,11 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         txin.is_mine = True
         self._add_txinout_derivation_info(txin, address, only_der_suffix=only_der_suffix)
         txin.block_height = self.adb.get_tx_height(txin.prevout.txid.hex()).height()
+        if txin.script_type == 'mweb':
+            d = self.db.get_txo_addr(txin.prevout.txid.hex(), address)
+            v, cb, po, txin.mweb_output_id = d[txin.prevout.out_idx]
+            index = self.get_address_index(address)
+            txin.mweb_address_index = index[-1] + 1 if index[-2] == 0 else 0
 
     def has_support_for_slip_19_ownership_proofs(self) -> bool:
         return False
@@ -2689,7 +2768,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         if not self.is_mine(address):
             return None
         script_type = self.get_txin_type(address)
-        if script_type in ('address', 'unknown'):
+        if script_type in ('address', 'unknown', 'mweb'):
             return None
         addr_index = self.get_address_index(address)
         if addr_index is None:
@@ -2776,6 +2855,19 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         if batch:
             batch.add_sweep_info_to_tx(tx)
 
+        # sign mweb
+        if tx._original_tx:
+            tmp_tx = copy.copy(tx._original_tx)
+            tmp_tx._outputs, change = [], []
+            for txout in tx._original_tx.outputs():
+                is_change = any(txout is o for o in tx.outputs())
+                (change if is_change else tmp_tx._outputs).append(txout)
+            tmp_tx, _ = mwebd.create(tmp_tx, self.keystore, self.config.estimate_fee,
+                                     dry_run=False, password=password)
+            tx._outputs = tmp_tx._outputs
+            tx._extra_bytes = tmp_tx._extra_bytes
+            tx.add_outputs(change)
+
         # sign with make_witness
         for i, txin in enumerate(tx.inputs()):
             if hasattr(txin, 'make_witness'):
@@ -2789,7 +2881,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         # add info to a temporary tx copy; including xpubs
         # and full derivation paths as hw keystores might want them
         tmp_tx = copy.deepcopy(tx)
-        tmp_tx.add_info_from_wallet(self, include_xpubs=True)
+        tmp_tx.add_info_from_wallet(self, include_xpubs=True, signing=True)
         # sign. start with ready keystores.
         # note: ks.ready_to_sign() side-effect: we trigger pairings with potential hw devices.
         #       We only do this once, before the loop, however we could rescan after each iteration,
@@ -2802,8 +2894,8 @@ class Abstract_Wallet(ABC, Logger, EventListener):
                 continue
         # remove sensitive info; then copy back details from temporary tx
         tmp_tx.remove_xpubs_and_bip32_paths()
+        tx.add_info_from_wallet(self, include_xpubs=False, signing=True)
         tx.combine_with_other_psbt(tmp_tx)
-        tx.add_info_from_wallet(self, include_xpubs=False)
         return tx
 
     def try_detecting_internal_addresses_corruption(self) -> None:
@@ -3407,7 +3499,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         long_warning = None
         short_warning = None
         allow_send = True
-        if feerate < Decimal(self.relayfee()) / 1000 and not is_future_tx:
+        if feerate < Decimal(self.relayfee()) / 1000 and fee and not is_future_tx:
             long_warning = ' '.join([
                 _("This transaction requires a higher fee, or it will not be propagated by your current server."),
                 _("Try to raise your transaction fee, or use a server with a lower relay fee.")
@@ -3855,6 +3947,8 @@ class Deterministic_Wallet(Abstract_Wallet):
         self._ephemeral_addr_to_addr_index = {}  # type: Dict[str, Sequence[int]]
         Abstract_Wallet.__init__(self, db, config=config)
         self.gap_limit = db.get('gap_limit', 20)
+        if self.txin_type == 'mweb':
+            self.gap_limit = 1000
         self.gap_limit_for_change = db.get('gap_limit_for_change', 10)
         # generate addresses now. note that without libsecp this might block
         # for a few seconds!
@@ -3994,6 +4088,8 @@ class Deterministic_Wallet(Abstract_Wallet):
         limit = self.gap_limit_for_change if for_change else self.gap_limit
         while True:
             num_addr = self.db.num_change_addresses() if for_change else self.db.num_receiving_addresses()
+            if self.txin_type == 'mweb' and for_change and num_addr > 0:
+                break
             if num_addr < limit:
                 count += 1
                 self.create_new_address(for_change)
@@ -4097,6 +4193,7 @@ class Standard_Wallet(Simple_Wallet, Deterministic_Wallet):
     wallet_type = 'standard'
 
     def __init__(self, db, *, config):
+        self._address_cache = {}
         Deterministic_Wallet.__init__(self, db, config=config)
 
     def get_public_key(self, address):
@@ -4121,6 +4218,91 @@ class Standard_Wallet(Simple_Wallet, Deterministic_Wallet):
     def pubkeys_to_address(self, pubkeys):
         pubkey = pubkeys[0]
         return bitcoin.pubkey_to_address(self.txin_type, pubkey)
+
+    def derive_address(self, for_change: int, n: int) -> str:
+        if self.txin_type != 'mweb':
+            return Deterministic_Wallet.derive_address(self, for_change, n)
+        if for_change == 1:
+            n = 0
+        else:
+            n += 1
+        if n in self._address_cache:
+            return self._address_cache[n]
+        resp = mwebd.stub().Addresses(AddressRequest(
+            from_index=n, to_index=n + (1 if for_change == 1 else 1000),
+            scan_secret=bytes.fromhex(self.keystore.scan_secret),
+            spend_pubkey=bytes.fromhex(self.keystore.spend_pubkey)))
+        for address in resp.address:
+            self._address_cache[n] = address
+            n += 1
+        return resp.address[0]
+
+    def synchronize(self):
+        if self.txin_type == 'mweb' and self.network:
+            utxos = {}
+            for utxo in self.get_utxos():
+                if utxo.block_height:
+                    utxos[utxo.mweb_output_id] = utxo
+            stub = mwebd.stub()
+            resp = stub.Spent(SpentRequest(output_id=utxos.keys()))
+            height = stub.Status(StatusRequest()).mweb_utxos_height
+            if resp.output_id and height == self.network.get_server_height():
+                tx = Transaction(None)
+                tx._inputs = [TxInput(prevout=utxos[x].prevout, script_sig=b'')
+                              for x in resp.output_id]
+                tx._outputs = []
+                for address in [utxos[x].address for x in resp.output_id]:
+                    hist = dict(self.db.get_addr_history(address))
+                    hist[tx.txid()] = height
+                    self.db.set_addr_history(address, list(hist.items()))
+                asyncio.run_coroutine_threadsafe(self._add_transaction(tx, height),
+                                                 self.network.asyncio_loop)
+        return Deterministic_Wallet.synchronize(self)
+
+    def start_network(self, network):
+        Deterministic_Wallet.start_network(self, network)
+        if self.txin_type == 'mweb':
+            scan_secret = bytes.fromhex(self.keystore.scan_secret)
+            asyncio.run_coroutine_threadsafe(self.subscribe_mweb_utxos(scan_secret),
+                                             self.network.asyncio_loop)
+
+    async def subscribe_mweb_utxos(self, scan_secret):
+        stub = mwebd.stub_async()
+        async for utxo in stub.Utxos(UtxosRequest(scan_secret=scan_secret)):
+            if utxo.address == '': continue
+            while True:
+                with self.lock:
+                    if utxo.output_id not in self._pending_mweb_output_ids:
+                        break
+                await asyncio.sleep(0.1)
+            exists = False
+            scripthash = bitcoin.address_to_scripthash(utxo.address)
+            for prevout, v in self.db.get_prevouts_by_scripthash(scripthash):
+                if v == utxo.value:
+                    tx = self.db.get_transaction(prevout.txid.hex())
+                    txout = tx.outputs()[prevout.out_idx]
+                    if txout.mweb_output_id == utxo.output_id:
+                        exists = True
+                        break
+            if not exists:
+                tx = Transaction(None)
+                tx._inputs = []
+                tx._outputs = [TxOutput.from_address_and_value(utxo.address, utxo.value)]
+                tx._outputs[0].mweb_output_id = utxo.output_id
+            hist = dict(self.db.get_addr_history(utxo.address))
+            hist[tx.txid()] = utxo.height
+            self.db.set_addr_history(utxo.address, list(hist.items()))
+            await self._add_transaction(tx, utxo.height)
+
+    async def _add_transaction(self, tx, height):
+        self.adb.add_unverified_or_unconfirmed_tx(tx.txid(), height)
+        self.adb.add_transaction(tx, allow_unrelated=True)
+        self.adb.set_up_to_date(True)
+        if height > 0:
+            async def f():
+                tx_info = await self._get_tx_mined_info(height)
+                self.adb.add_verified_tx(tx.txid(), tx_info)
+            await self.taskgroup.spawn(f())
 
     def has_support_for_slip_19_ownership_proofs(self) -> bool:
         return self.keystore.has_support_for_slip_19_ownership_proofs()
