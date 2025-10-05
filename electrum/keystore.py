@@ -638,6 +638,8 @@ class BIP32_KeyStore(Xpub, Deterministic_KeyStore):
         Deterministic_KeyStore.__init__(self, d)
         self.xpub = d.get('xpub')
         self.xprv = d.get('xprv')
+        self.scan_secret = d.get('mweb_scan_secret')
+        self.spend_pubkey = d.get('mweb_spend_pubkey')
 
     def watching_only_keystore(self):
         return BIP32_KeyStore({
@@ -655,6 +657,8 @@ class BIP32_KeyStore(Xpub, Deterministic_KeyStore):
         d['xprv'] = self.xprv
         d['derivation'] = self.get_derivation_prefix()
         d['root_fingerprint'] = self.get_root_fingerprint()
+        d['mweb_scan_secret'] = self.scan_secret
+        d['mweb_spend_pubkey'] = self.spend_pubkey
         return d
 
     def get_master_private_key(self, password) -> str:
@@ -704,6 +708,11 @@ class BIP32_KeyStore(Xpub, Deterministic_KeyStore):
         node = rootnode.subkey_at_private_derivation(derivation)
         self.add_xprv(node.to_xprv())
         self.add_key_origin_from_root_node(derivation_prefix=derivation, root_node=rootnode)
+        if xtype == 'mweb':
+            n = node.subkey_at_private_derivation([BIP32_PRIME])
+            self.scan_secret = n.eckey.get_secret_bytes().hex()
+            n = node.subkey_at_private_derivation([BIP32_PRIME + 1])
+            self.spend_pubkey = n.eckey.get_public_key_bytes().hex()
 
     def get_private_key(self, sequence: Sequence[int], password):
         xprv = self.get_master_private_key(password)
@@ -902,6 +911,8 @@ class Hardware_KeyStore(Xpub, KeyStore):
         self.xpub = d.get('xpub')
         self.label = d.get('label')  # type: Optional[str]
         self.soft_device_id = d.get('soft_device_id')  # type: Optional[str]
+        self.scan_secret = d.get('mweb_scan_secret')
+        self.spend_pubkey = d.get('mweb_spend_pubkey')
         self.handler = None  # type: Optional[HardwareHandlerBase]
         run_hook('init_keystore', self)
 
@@ -933,6 +944,8 @@ class Hardware_KeyStore(Xpub, KeyStore):
             'root_fingerprint': self.get_root_fingerprint(),
             'label': self.label,
             'soft_device_id': self.soft_device_id,
+            'mweb_scan_secret': self.scan_secret,
+            'mweb_spend_pubkey': self.spend_pubkey,
         }
 
     def is_watching_only(self):
@@ -1190,7 +1203,7 @@ def from_seed(seed: str, *, passphrase: Optional[str], for_multisig: bool = Fals
             raise Exception("'old'-type electrum seed cannot have passphrase")
         keystore = Old_KeyStore({})
         keystore.add_seed(seed)
-    elif t in ['standard', 'segwit']:
+    elif t in ['standard', 'segwit', 'mweb']:
         keystore = BIP32_KeyStore({})
         keystore.add_seed(seed)
         keystore.passphrase = passphrase
@@ -1198,6 +1211,9 @@ def from_seed(seed: str, *, passphrase: Optional[str], for_multisig: bool = Fals
         if t == 'standard':
             der = "m/"
             xtype = 'standard'
+        elif t == 'mweb':
+            der = "m/1000'/"
+            xtype = 'mweb'
         else:
             der = "m/1'/" if for_multisig else "m/0'/"
             xtype = 'p2wsh' if for_multisig else 'p2wpkh'

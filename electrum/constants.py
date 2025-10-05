@@ -68,6 +68,7 @@ class AbstractNet:
     ADDRTYPE_P2PKH: int
     ADDRTYPE_P2SH: int
     SEGWIT_HRP: str
+    MWEB_HRP: str
     BOLT11_HRP: str
     GENESIS: str
     BLOCK_HEIGHT_FIRST_LIGHTNING_CHANNELS: int = 0
@@ -144,6 +145,7 @@ class BitcoinMainnet(AbstractNet):
     ADDRTYPE_P2PKH = 48
     ADDRTYPE_P2SH = 50
     SEGWIT_HRP = "ltc"
+    MWEB_HRP = "ltcmweb"
     BOLT11_HRP = SEGWIT_HRP
     GENESIS = "12a765e31ffd4059bada1e25190f6e98c99d9714d334efa41a195a7e7e04bfe2"
     DEFAULT_PORTS = {'t': '50001', 's': '50002'}
@@ -155,6 +157,7 @@ class BitcoinMainnet(AbstractNet):
         'p2wsh-p2sh':  0x0295b005,  # Yprv
         'p2wpkh':      0x04b2430c,  # zprv
         'p2wsh':       0x02aa7a99,  # Zprv
+        'mweb':        0x03a3f988,  # mprv
     }
     XPRV_HEADERS_INV = inv_dict(XPRV_HEADERS)
     XPUB_HEADERS = {
@@ -163,6 +166,7 @@ class BitcoinMainnet(AbstractNet):
         'p2wsh-p2sh':  0x0295b43f,  # Ypub
         'p2wpkh':      0x04b24746,  # zpub
         'p2wsh':       0x02aa7ed3,  # Zpub
+        'mweb':        0x03a3fdc2,  # mpub
     }
     XPUB_HEADERS_INV = inv_dict(XPUB_HEADERS)
     BIP44_COIN_TYPE = 2
@@ -185,6 +189,7 @@ class BitcoinTestnet(AbstractNet):
     ADDRTYPE_P2PKH = 111
     ADDRTYPE_P2SH = 58
     SEGWIT_HRP = "tltc"
+    MWEB_HRP = "tmweb"
     BOLT11_HRP = SEGWIT_HRP
     GENESIS = "4966625a4b2851d9fdee139e56211a0d88575f59ed816ff5e6a63deb4e3e29a0"
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
@@ -195,6 +200,7 @@ class BitcoinTestnet(AbstractNet):
         'p2wsh-p2sh':  0x024285b5,  # Uprv
         'p2wpkh':      0x045f18bc,  # vprv
         'p2wsh':       0x02575048,  # Vprv
+        'mweb':        0x03b8c41c,  # nprv
     }
     XPRV_HEADERS_INV = inv_dict(XPRV_HEADERS)
     XPUB_HEADERS = {
@@ -203,6 +209,7 @@ class BitcoinTestnet(AbstractNet):
         'p2wsh-p2sh':  0x024289ef,  # Upub
         'p2wpkh':      0x045f1cf6,  # vpub
         'p2wsh':       0x02575483,  # Vpub
+        'mweb':        0x03b8c856,  # npub
     }
     XPUB_HEADERS_INV = inv_dict(XPUB_HEADERS)
     BIP44_COIN_TYPE = 1
@@ -222,6 +229,7 @@ class BitcoinRegtest(BitcoinTestnet):
 
     NET_NAME = "regtest"
     SEGWIT_HRP = "rltc"
+    MWEB_HRP = "tmweb"
     BOLT11_HRP = SEGWIT_HRP
     GENESIS = "530827f38f93b43ed12af0b3ad25a288dc02ed74d6d7857862df51fc56c416f9"
     LN_DNS_SEEDS = []
