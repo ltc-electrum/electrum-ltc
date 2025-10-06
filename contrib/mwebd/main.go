@@ -1,6 +1,5 @@
 package main
 
-//#include <stdlib.h>
 import "C"
 
 import (
@@ -28,13 +27,8 @@ func Start(chain, dataDir string) C.int {
 }
 
 //export Scrypt
-func Scrypt(x string) unsafe.Pointer {
-	return C.CBytes(scrypt.Scrypt([]byte(x)))
-}
-
-//export Free
-func Free(p unsafe.Pointer) {
-	C.free(p)
+func Scrypt(x string, buf *byte) {
+	copy(unsafe.Slice(buf, 32), scrypt.Scrypt([]byte(x)))
 }
 
 func main() {}

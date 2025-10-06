@@ -43,11 +43,9 @@ class strgo(Structure):
         self.n = len(self.b)
 
 def scrypt(x):
-    libmwebd.Scrypt.restype = POINTER(c_char)
-    p = libmwebd.Scrypt(strgo(x))
-    b = string_at(p, 32)
-    libmwebd.Free(p)
-    return b
+    buf = bytearray(32)
+    libmwebd.Scrypt(strgo(x), (c_char * len(buf)).from_buffer(buf))
+    return buf
 
 def set_data_dir(dir):
     global data_dir
