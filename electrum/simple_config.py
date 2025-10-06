@@ -8,6 +8,7 @@ from functools import cached_property
 from copy import deepcopy
 
 from . import constants
+from . import mwebd
 from . import util
 from . import invoices
 from .util import base_units, base_unit_name_to_decimal_point, decimal_point_to_base_unit_name, UnknownBaseUnit, DECIMAL_POINT_DEFAULT
@@ -262,6 +263,8 @@ class SimpleConfig(Logger):
         if subdir := chain.datadir_subdir():
             path = os.path.join(path, subdir)
             make_dir(path, allow_symlink=False)
+
+        mwebd.set_data_dir(path)
 
         self.logger.info(f"electrum directory {path} (chain={chain.NET_NAME})")
         return path

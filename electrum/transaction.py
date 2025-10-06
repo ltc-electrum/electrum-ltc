@@ -40,12 +40,13 @@ import copy
 import electrum_ecc as ecc
 from electrum_ecc.util import bip340_tagged_hash
 
-from . import bitcoin, bip32
+from . import bitcoin, bip32, constants, segwit_addr
 from .bip32 import BIP32Node
 from .util import to_bytes, bfh, chunks, is_hex_str, parse_max_spend
 from .bitcoin import (
     TYPE_ADDRESS, TYPE_SCRIPT, hash_160, hash160_to_p2sh, hash160_to_p2pkh, hash_to_segwit_addr, var_int,
     TOTAL_COIN_SUPPLY_LIMIT_IN_BTC, COIN, opcodes, base_decode, base_encode, construct_witness, construct_script,
+    is_mweb_address,
     taproot_tweak_seckey
 )
 from .crypto import sha256d, sha256
@@ -130,12 +131,14 @@ class Sighash(IntEnum):
 class TxOutput:
     scriptpubkey: bytes
     value: Union[int, str]
+    mweb_output_id: str
 
     def __init__(self, *, scriptpubkey: bytes, value: Union[int, str]):
         self.scriptpubkey = scriptpubkey
         if not (isinstance(value, int) or parse_max_spend(value) is not None):
             raise ValueError(f"bad txout value: {value!r}")
         self.value = value  # int in satoshis; or spend-max-like str
+        self.mweb_output_id = ""
 
     @classmethod
     def from_address_and_value(cls, address: str, value: Union[int, str]) -> Union['TxOutput', 'PartialTxOutput']:
@@ -145,6 +148,8 @@ class TxOutput:
     def serialize_to_network(self) -> bytes:
         buf = int.to_bytes(self.value, 8, byteorder="little", signed=False)
         script = self.scriptpubkey
+        if self.mweb_output_id:
+            script = b"mweb" + script + bfh(self.mweb_output_id)
         buf += var_int(len(script))
         buf += script
         return buf
@@ -323,18 +328,21 @@ class TxInput:
     nsequence: int
     witness: Optional[bytes]
     _is_coinbase_output: bool
+    _is_pegout: bool
 
     def __init__(self, *,
                  prevout: TxOutpoint,
                  script_sig: bytes = None,
                  nsequence: int = 0xffffffff - 1,
                  witness: bytes = None,
-                 is_coinbase_output: bool = False):
+                 is_coinbase_output: bool = False,
+                 is_pegout: bool = False):
         self.prevout = prevout
         self.script_sig = script_sig
         self.nsequence = nsequence
         self.witness = witness
         self._is_coinbase_output = is_coinbase_output
+        self._is_pegout = is_pegout
         # blockchain fields
         self.block_height = None  # type: Optional[int]  # height at which the TXO is mined; None means unknown. SPV-ed.
         self.block_txpos = None  # type: Optional[int]  # position of tx in block, if TXO is mined; otherwise None or -1
@@ -406,6 +414,12 @@ class TxInput:
         """
         return self._is_coinbase_output
 
+    def is_pegout(self) -> bool:
+        """Whether the coin being spent is a pegout.
+        This matters for coin maturity.
+        """
+        return self._is_pegout
+
     def value_sats(self) -> Optional[int]:
         return self.__value_sats
 
@@ -424,6 +438,7 @@ class TxInput:
             'prevout_hash': self.prevout.txid.hex(),
             'prevout_n': self.prevout.out_idx,
             'coinbase': self.is_coinbase_output(),
+            'pegout': self.is_pegout(),
             'nsequence': self.nsequence,
         }
         if self.script_sig is not None:
@@ -595,8 +610,8 @@ class BCDataStream(object):
     def read_bytes(self, length: int) -> bytes:
         if self.input is None:
             raise SerializationError("call write(bytes) before trying to deserialize")
-        assert length >= 0
         input_len = len(self.input)
+        if length < 0: length += input_len - self.read_cursor
         read_begin = self.read_cursor
         read_end = read_begin + length
         if 0 <= read_begin <= read_end <= input_len:
@@ -838,6 +853,10 @@ def get_script_type_from_output_script(scriptpubkey: bytes) -> Optional[str]:
 
 
 def get_address_from_output_script(_bytes: bytes, *, net=None) -> Optional[str]:
+    if len(_bytes) == 66:
+        if net is None: net = constants.net
+        return segwit_addr.encode_segwit_address(net.MWEB_HRP, 0, _bytes)
+
     try:
         decoded = [x for x in script_GetOp(_bytes)]
     except MalformedBitcoinScript:
@@ -887,7 +906,13 @@ def parse_output(vds: BCDataStream) -> TxOutput:
     if value < 0:
         raise SerializationError('invalid output amount (negative)')
     scriptpubkey = vds.read_bytes(vds.read_compact_size())
-    return TxOutput(value=value, scriptpubkey=scriptpubkey)
+    mweb_output_id = ""
+    if scriptpubkey[:4] == b'mweb' and len(scriptpubkey) == 102:
+        mweb_output_id = scriptpubkey[70:].hex()
+        scriptpubkey = scriptpubkey[4:70]
+    output = TxOutput(value=value, scriptpubkey=scriptpubkey)
+    output.mweb_output_id = mweb_output_id
+    return output
 
 
 # pay & redeem scripts
@@ -918,6 +943,9 @@ class Transaction:
         self._outputs = None  # type: List[TxOutput]
         self._locktime = 0
         self._version = 2
+
+        self._flag = None
+        self._extra_bytes = b''
 
         self._cached_txid = None  # type: Optional[str]
 
@@ -977,21 +1005,20 @@ class Transaction:
             marker = vds.read_bytes(1)
             if marker != b'\x01':
                 raise SerializationError('invalid txn marker byte: {}'.format(marker))
+            self._flag = vds.read_bytes(1)
+            if self._flag[0] & 9 == 0:
+                raise SerializationError('invalid txn marker byte: {}'.format(self._flag))
+            is_segwit = self._flag[0] & 1 > 0
             n_vin = vds.read_compact_size()
-        if n_vin < 1:
-            raise SerializationError('tx needs to have at least 1 input')
         txins = [parse_input(vds) for i in range(n_vin)]
         n_vout = vds.read_compact_size()
-        if n_vout < 1:
-            raise SerializationError('tx needs to have at least 1 output')
         self._outputs = [parse_output(vds) for i in range(n_vout)]
         if is_segwit:
             for txin in txins:
                 parse_witness(vds, txin)
         self._inputs = txins  # only expose field after witness is parsed, for sanity
+        self._extra_bytes = vds.read_bytes(-4)
         self._locktime = vds.read_uint32()
-        if vds.can_read_more():
-            raise SerializationError('extra junk at the end')
 
     @classmethod
     def serialize_witness(cls, txin: TxInput, *, estimate_size=False) -> bytes:
@@ -1167,7 +1194,7 @@ class Transaction:
 
     def is_segwit(self, *, guess_for_address=False):
         return any(txin.is_segwit(guess_for_address=guess_for_address)
-                   for txin in self.inputs())
+                   for txin in self.inputs()) or len(self.inputs()) == 0
 
     def invalidate_ser_cache(self):
         self._cached_network_ser = None
@@ -1208,9 +1235,10 @@ class Transaction:
         use_segwit_ser = use_segwit_ser_for_estimate_size or use_segwit_ser_for_actual_use
         if include_sigs and not force_legacy and use_segwit_ser:
             marker = '00'
-            flag = '01'
+            flag = '01' if self._flag is None else '%02x' % (self._flag[0] | 1)
             witness = ''.join(self.serialize_witness(x, estimate_size=estimate_size).hex() for x in inputs)
-            return nVersion + marker + flag + txins + txouts + witness + nLocktime
+            extra = '' if estimate_size else self._extra_bytes.hex()
+            return nVersion + marker + flag + txins + txouts + witness + extra + nLocktime
         else:
             return nVersion + txins + txouts + nLocktime
 
@@ -1234,6 +1262,11 @@ class Transaction:
             all_segwit = all(txin.is_segwit() for txin in self.inputs())
             if not all_segwit and not self.is_complete():
                 return None
+            if len(self.inputs()) == 0 and len(self.outputs()) == 1:
+                id = self.outputs()[0].mweb_output_id
+                if id != "":
+                    self._cached_txid = id
+                    return id
             try:
                 ser = self.serialize_to_network(force_legacy=True)
             except UnknownTxinType:
@@ -1497,6 +1530,15 @@ class Transaction:
             assert self.inputs()[idx].prevout == prevout
         return idx
 
+    def is_hogex(self):
+        if not self.inputs() or not self.outputs():
+            return False
+        if self.inputs()[0].prevout.out_idx:
+            return False
+        witver, witprog = segwit_addr.decode_segwit_address(
+            constants.net.SEGWIT_HRP, self.outputs()[0].address)
+        return witver == 8 and len(witprog) == 32
+
 
 def convert_raw_tx_to_hex(raw: Union[str, bytes]) -> str:
     """Sanitizes tx-describing input (hex/base43/base64) into
@@ -1574,6 +1616,7 @@ class PSBTOutputType(IntEnum):
     REDEEM_SCRIPT = 0
     WITNESS_SCRIPT = 1
     BIP32_DERIVATION = 2
+    MWEB_OUTPUT_ID = 1000
 
 
 # Serialization/deserialization tools
@@ -1678,6 +1721,8 @@ class PartialTxInput(TxInput, PSBTSection):
         self._is_p2sh_segwit = None  # type: Optional[bool]  # None means unknown
         self._is_native_segwit = None  # type: Optional[bool]  # None means unknown
         self.witness_sizehint = None  # type: Optional[int]  # byte size of serialized complete witness, for tx size est
+        self.mweb_output_id = None
+        self.mweb_address_index = None
 
     @property
     def witness_utxo(self):
@@ -1739,7 +1784,8 @@ class PartialTxInput(TxInput, PSBTSection):
                              script_sig=None if strip_witness else txin.script_sig,
                              nsequence=txin.nsequence,
                              witness=None if strip_witness else txin.witness,
-                             is_coinbase_output=txin.is_coinbase_output())
+                             is_coinbase_output=txin.is_coinbase_output(),
+                             is_pegout=txin.is_pegout())
         res.utxo = txin.utxo
         return res
 
@@ -2163,6 +2209,8 @@ class PartialTxOutput(TxOutput, PSBTSection):
             if len(key) not in (33, 65):
                 raise SerializationError(f"key for {repr(kt)} has unexpected length: {len(key)}")
             self.bip32_paths[key] = unpack_bip32_root_fingerprint_and_int_path(val)
+        elif kt == PSBTOutputType.MWEB_OUTPUT_ID:
+            self.mweb_output_id = val.hex()
         else:
             full_key = self.get_fullkey_from_keytype_and_key(kt, key)
             if full_key in self._unknown:
@@ -2177,6 +2225,8 @@ class PartialTxOutput(TxOutput, PSBTSection):
         for k in sorted(self.bip32_paths):
             packed_path = pack_bip32_root_fingerprint_and_int_path(*self.bip32_paths[k])
             wr(PSBTOutputType.BIP32_DERIVATION, packed_path, k)
+        if self.mweb_output_id:
+            wr(PSBTOutputType.MWEB_OUTPUT_ID, bfh(self.mweb_output_id))
         for full_key, val in sorted(self._unknown.items()):
             key_type, key = self.get_keytype_and_key_from_fullkey(full_key)
             wr(key_type, val, key=key)
@@ -2202,6 +2252,7 @@ class PartialTransaction(Transaction):
         self._outputs = []  # type: List[PartialTxOutput]
         self._unknown = {}  # type: Dict[bytes, bytes]
         self.rbf_merge_txid = None
+        self._original_tx = None
 
     def to_json(self) -> dict:
         d = super().to_json()
@@ -2221,6 +2272,8 @@ class PartialTransaction(Transaction):
         res._outputs = [PartialTxOutput.from_txout(txout) for txout in tx.outputs()]
         res.version = tx.version
         res.locktime = tx.locktime
+        res._flag = tx._flag
+        res._extra_bytes = tx._extra_bytes
         return res
 
     @classmethod
@@ -2448,6 +2501,16 @@ class PartialTransaction(Transaction):
             self._outputs.sort(key = lambda o: (o.value, o.scriptpubkey))
         self.invalidate_ser_cache()
 
+    def input_value(self) -> int:
+        if self._original_tx is not None:
+            return self._original_tx.input_value()
+        return Transaction.input_value(self)
+
+    def output_value(self) -> int:
+        if self._original_tx is not None:
+            return self._original_tx.output_value()
+        return Transaction.output_value(self)
+
     def sign(self, keypairs: Mapping[bytes, bytes]) -> None:
         # keypairs:  pubkey_bytes -> secret_bytes
         sighash_cache = SighashCache()
@@ -2570,6 +2633,7 @@ class PartialTransaction(Transaction):
             wallet: 'Abstract_Wallet',
             *,
             include_xpubs: bool = False,
+            signing: bool = False,
     ) -> None:
         if self.is_complete():
             return
@@ -2591,6 +2655,7 @@ class PartialTransaction(Transaction):
             wallet.add_input_info(
                 txin,
                 only_der_suffix=False,
+                signing=signing,
             )
         for txout in self.outputs():
             wallet.add_output_info(
