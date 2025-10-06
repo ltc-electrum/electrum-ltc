@@ -4,7 +4,6 @@ package main
 import "C"
 
 import (
-	"encoding/hex"
 	"runtime"
 	"unsafe"
 
@@ -29,14 +28,13 @@ func Start(chain, dataDir string) C.int {
 }
 
 //export Scrypt
-func Scrypt(x string) *C.char {
-	b, _ := hex.DecodeString(x)
-	return C.CString(hex.EncodeToString(scrypt.Scrypt(b)))
+func Scrypt(x string) unsafe.Pointer {
+	return C.CBytes(scrypt.Scrypt([]byte(x)))
 }
 
 //export Free
-func Free(s *C.char) {
-	C.free(unsafe.Pointer(s))
+func Free(p unsafe.Pointer) {
+	C.free(p)
 }
 
 func main() {}

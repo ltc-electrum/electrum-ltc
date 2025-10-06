@@ -38,16 +38,16 @@ except BaseException as e1:
 class strgo(Structure):
     _fields_ = [('p', c_char_p), ('n', c_int)]
     def __init__(self, s):
-        self.b = s.encode()
+        self.b = s.encode() if isinstance(s, str) else s
         self.p = c_char_p(self.b)
         self.n = len(self.b)
 
-def scrypt(hex):
+def scrypt(x):
     libmwebd.Scrypt.restype = POINTER(c_char)
-    res1 = libmwebd.Scrypt(strgo(hex))
-    res2 = string_at(res1).decode()
-    libmwebd.Free(res1)
-    return res2
+    p = libmwebd.Scrypt(strgo(x))
+    b = string_at(p, 32)
+    libmwebd.Free(p)
+    return b
 
 def set_data_dir(dir):
     global data_dir
