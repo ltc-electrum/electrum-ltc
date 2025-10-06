@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Dict, Optional, Set, Tuple, NamedTuple, Sequen
 
 from .crypto import sha256
 from . import bitcoin, util
-from .bitcoin import COINBASE_MATURITY
+from .bitcoin import COINBASE_MATURITY, PEGOUT_MATURITY
 from .util import profiler, bfh, TxMinedInfo, UnrelatedTransactionException, with_lock, OldTaskGroup
 from .transaction import Transaction, TxOutput, TxInput, PartialTxInput, TxOutpoint, PartialTransaction, tx_from_any
 from .synchronizer import Synchronizer
@@ -182,7 +182,7 @@ class AddressSynchronizer(Logger, EventListener):
         if address:
             d = self.db.get_txo_addr(prevout_hash, address)
             try:
-                v, cb = d[prevout_n]
+                v, cb, po, mw = d[prevout_n]
                 return v
             except KeyError:
                 pass
@@ -298,7 +298,7 @@ class AddressSynchronizer(Logger, EventListener):
             # BUT we track is_mine inputs in a txn, and during subsequent calls
             # of add_transaction tx, we might learn of more-and-more inputs of
             # being is_mine, as we roll the gap_limit forward
-            is_coinbase = tx.inputs()[0].is_coinbase_input()
+            is_coinbase = len(tx.inputs()) > 0 and tx.inputs()[0].is_coinbase_input()
             tx_height = self.get_tx_height(tx_hash, force_local_if_missing_tx=False).height()
             if not allow_unrelated:
                 # note that during sync, if the transactions are not properly sorted,
@@ -339,7 +339,7 @@ class AddressSynchronizer(Logger, EventListener):
                 if addr and self.is_mine(addr):
                     outputs = self.db.get_txo_addr(prevout_hash, addr)
                     try:
-                        v, is_cb = outputs[prevout_n]
+                        v, is_cb, po, mw = outputs[prevout_n]
                     except KeyError:
                         pass
                     else:
@@ -361,7 +361,8 @@ class AddressSynchronizer(Logger, EventListener):
                 self.db.add_prevout_by_scripthash(scripthash, prevout=TxOutpoint.from_str(ser), value=v)
                 addr = txo.address
                 if addr and self.is_mine(addr):
-                    self.db.add_txo_addr(tx_hash, addr, n, v, is_coinbase)
+                    self.db.add_txo_addr(tx_hash, addr, n, v, is_coinbase,
+                                         tx.is_hogex(), txo.mweb_output_id)
                     self.invalidate_cache()
                     # give v to txi that spends me
                     next_tx = self.db.get_spent_outpoint(tx_hash, n)
@@ -781,7 +782,7 @@ class AddressSynchronizer(Logger, EventListener):
             delta -= v
         # add the value of the coins received at address
         d = self.db.get_txo_addr(tx_hash, address)
-        for n, (v, cb) in d.items():
+        for n, (v, cb, po, mw) in d.items():
             delta += v
         return delta
 
@@ -830,7 +831,9 @@ class AddressSynchronizer(Logger, EventListener):
                 v_in += value
         for txout in tx.outputs():
             v_out += txout.value
-        if v_in is not None:
+        if v_in == 0 or v_out == 0:
+            fee = 0
+        elif v_in is not None:
             fee = v_in - v_out
         else:
             fee = None
@@ -848,8 +851,8 @@ class AddressSynchronizer(Logger, EventListener):
             tx_mined_info = self.get_tx_height(tx_hash)
             txpos = tx_mined_info.txpos if tx_mined_info.txpos is not None else -1
             d = self.db.get_txo_addr(tx_hash, address)
-            for n, (v, is_cb) in d.items():
-                received[tx_hash + ':%d'%n] = (height, txpos, v, is_cb)
+            for n, (v, is_cb, po, mw) in d.items():
+                received[tx_hash + ':%d'%n] = (height, txpos, v, is_cb, po, mw)
             l = self.db.get_txi_addr(tx_hash, address)
             for txi, v in l:
                 sent[txi] = tx_hash, height, txpos
@@ -859,9 +862,9 @@ class AddressSynchronizer(Logger, EventListener):
         received, sent = self.get_addr_io(address)
         out = {}
         for prevout_str, v in received.items():
-            tx_height, tx_pos, value, is_cb = v
+            tx_height, tx_pos, value, is_cb, po, mweb_output_id = v
             prevout = TxOutpoint.from_str(prevout_str)
-            utxo = PartialTxInput(prevout=prevout, is_coinbase_output=is_cb)
+            utxo = PartialTxInput(prevout=prevout, is_coinbase_output=is_cb, is_pegout=po)
             utxo._trusted_address = address
             utxo._trusted_value_sats = value
             utxo.block_height = tx_height
@@ -873,6 +876,7 @@ class AddressSynchronizer(Logger, EventListener):
             else:
                 utxo.spent_txid = None
                 utxo.spent_height = None
+            utxo.mweb_output_id = mweb_output_id
             out[prevout] = utxo
         return out
 
@@ -886,7 +890,7 @@ class AddressSynchronizer(Logger, EventListener):
     # return the total amount ever received by an address
     def get_addr_received(self, address):
         received, sent = self.get_addr_io(address)
-        return sum([value for height, pos, value, is_cb in received.values()])
+        return sum([value for height, pos, value, is_cb, po, mw in received.values()])
 
     @with_lock
     @with_local_height_cached
@@ -924,7 +928,10 @@ class AddressSynchronizer(Logger, EventListener):
             v = utxo.value_sats()
             tx_height = utxo.block_height
             is_cb = utxo.is_coinbase_output()
+            is_po = utxo.is_pegout()
             if is_cb and tx_height + COINBASE_MATURITY > mempool_height:
+                x += v
+            elif is_po and tx_height + PEGOUT_MATURITY > mempool_height:
                 x += v
             elif tx_height > 0:
                 c += v
@@ -1000,6 +1007,9 @@ class AddressSynchronizer(Logger, EventListener):
                     continue
                 if (mature_only and txo.is_coinbase_output()
                         and txo.block_height + COINBASE_MATURITY > mempool_height):
+                    continue
+                if (mature_only and txo.is_pegout()
+                        and txo.block_height + PEGOUT_MATURITY > mempool_height):
                     continue
                 coins.append(txo)
                 continue
