@@ -65,6 +65,8 @@ from .logging import Logger
 from .transaction import Transaction
 from .fee_policy import FEE_ETA_TARGETS
 from .lrucache import LRUCache
+from . import mwebd
+from .mwebd_pb2 import BroadcastRequest
 
 if TYPE_CHECKING:
     from .network import Network
@@ -1347,8 +1349,10 @@ class Interface(Logger):
         if any(DummyAddress.is_dummy_address(txout.address) for txout in tx.outputs()):
             raise DummyAddressUsedInTxException("tried to broadcast tx with dummy address!")
         try:
-            out = await self.session.send_request('blockchain.transaction.broadcast', [rawtx], timeout=timeout)
-            # note: both 'out' and exception messages are untrusted input from the server
+            stub = mwebd.stub_async()
+            resp = await stub.Broadcast(BroadcastRequest(raw_tx=bfh(rawtx)))
+            tx._cached_txid = resp.txid
+            out = txid_calc = resp.txid
         except (RequestTimedOut, asyncio.CancelledError, asyncio.TimeoutError):
             raise  # pass-through
         except aiorpcx.jsonrpc.CodeMessageError as e:

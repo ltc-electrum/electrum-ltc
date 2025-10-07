@@ -73,7 +73,7 @@ class WalletUnfinished(WalletFileException):
 # seed_version is now used for the version of the wallet file
 OLD_SEED_VERSION = 4        # electrum versions < 2.0
 NEW_SEED_VERSION = 11       # electrum versions >= 2.0
-FINAL_SEED_VERSION = 61     # electrum >= 2.7 will set this to prevent
+FINAL_SEED_VERSION = 1000   # electrum >= 2.7 will set this to prevent
                             # old versions from overwriting new format
 
 
@@ -1344,11 +1344,14 @@ class WalletDB(JsonDB):
 
     @locked
     def get_txo_addr(self, tx_hash: str, address: str) -> Dict[int, Tuple[int, bool]]:
-        """Returns a dict: output_index -> (value, is_coinbase)."""
+        """Returns a dict: output_index -> (value, is_coinbase, is_pegout, mweb_output_id)."""
         assert isinstance(tx_hash, str)
         assert isinstance(address, str)
         d = self.txo.get(tx_hash, {}).get(address, {})
-        return {int(n): (v, cb) for (n, (v, cb)) in d.items()}
+        try:
+            return {int(n): (v, cb, po, mw) for (n, (v, cb, po, mw)) in d.items()}
+        except ValueError:
+            return {int(n): (v, cb, False, None) for (n, (v, cb)) in d.items()}
 
     @modifier
     def add_txi_addr(self, tx_hash: str, addr: str, ser: str, v: int) -> None:
@@ -1364,19 +1367,22 @@ class WalletDB(JsonDB):
         d[addr][ser] = v
 
     @modifier
-    def add_txo_addr(self, tx_hash: str, addr: str, n: Union[int, str], v: int, is_coinbase: bool) -> None:
+    def add_txo_addr(self, tx_hash: str, addr: str, n: Union[int, str], v: int,
+                     is_coinbase: bool, is_pegout: bool, mweb_output_id: str) -> None:
         n = str(n)
         assert isinstance(tx_hash, str)
         assert isinstance(addr, str)
         assert isinstance(n, str)
         assert isinstance(v, int)
         assert isinstance(is_coinbase, bool)
+        assert isinstance(is_pegout, bool)
+        assert isinstance(mweb_output_id, str)
         if tx_hash not in self.txo:
             self.txo[tx_hash] = {}
         d = self.txo[tx_hash]
         if addr not in d:
             d[addr] = {}
-        d[addr][n] = (v, is_coinbase)
+        d[addr][n] = (v, is_coinbase, is_pegout, mweb_output_id)
 
     @locked
     def list_txi(self) -> Sequence[str]:
@@ -1464,8 +1470,6 @@ class WalletDB(JsonDB):
         tx = tx_from_any(str(tx))
         if not tx_hash:
             raise Exception("trying to add tx to db without txid")
-        if tx_hash != tx.txid():
-            raise Exception(f"trying to add tx to db with inconsistent txid: {tx_hash} != {tx.txid()}")
         # don't allow overwriting complete tx with partial tx
         tx_we_already_have = self.transactions.get(tx_hash, None)
         if tx_we_already_have is None or isinstance(tx_we_already_have, PartialTransaction):
@@ -1481,7 +1485,9 @@ class WalletDB(JsonDB):
         if tx_hash is None:
             return None
         assert isinstance(tx_hash, str)
-        return self.transactions.get(tx_hash)
+        tx = self.transactions.get(tx_hash)
+        if tx: tx._cached_txid = tx_hash
+        return tx
 
     @locked
     def list_transactions(self) -> Sequence[str]:
