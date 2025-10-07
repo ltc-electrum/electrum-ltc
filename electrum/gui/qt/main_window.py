@@ -37,6 +37,7 @@ import asyncio
 from typing import Optional, TYPE_CHECKING, Sequence, Union, Dict, Mapping, Callable, List, Set
 import concurrent.futures
 import inspect
+from grpc._channel import _InactiveRpcError
 
 from PyQt6.QtGui import QPixmap, QKeySequence, QIcon, QCursor, QFont, QFontMetrics, QAction, QShortcut
 from PyQt6.QtCore import Qt, QRect, QStringListModel, QSize, pyqtSignal, QTimer
@@ -76,6 +77,8 @@ from electrum.lntransport import extract_nodeid, ConnStringFormatError
 from electrum.lnaddr import lndecode
 from electrum.submarine_swaps import SwapServerTransport, NostrTransport
 from electrum.fee_policy import FeePolicy
+import electrum.mwebd as mwebd
+from electrum.mwebd_pb2 import StatusRequest
 
 from .rate_limiter import rate_limited
 from .exception_window import Exception_Hook
@@ -638,6 +641,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         name_and_version = self.get_app_name_and_version_str()
         title = f"{name_and_version}  -  {self.wallet.basename()}"
         extra = [self.wallet.db.get('wallet_type', '?')]
+        if self.wallet.txin_type == 'mweb':
+            extra.append('mweb')
         if self.wallet.is_watching_only():
             extra.append(_('watching only'))
         title += '  [%s]'% ', '.join(extra)
@@ -958,7 +963,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         if self.need_update.is_set():
             self.need_update.clear()
             self.update_wallet()
-        elif not self.wallet.is_up_to_date():
+        else:
             # this updates "synchronizing" progress
             self.update_status()
         # resolve aliases
@@ -1061,6 +1066,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             server_height = self.network.get_server_height()
             server_lag = self.network.get_local_height() - server_height
             fork_str = "_fork" if len(self.network.get_blockchains())>1 else ""
+            try:
+                mwebd_status = mwebd.stub().Status(StatusRequest())
+            except:
+                mwebd_status = None
             # Server height can be 0 after switching to a new server
             # until we get a headers subscription request response.
             # Display the synchronizing message in that case.
@@ -1072,6 +1081,20 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             elif server_lag > 1:
                 network_text = _("Server is lagging ({} blocks)").format(server_lag)
                 icon = read_QIcon("status_lagging%s.png"%fork_str)
+            elif mwebd_status is None:
+                network_text = _("MWEB is disconnected")
+                icon = read_QIcon("status_disconnected.png")
+            elif mwebd_status.block_header_height < server_height:
+                network_text = ("{} ({}%)".format(_("Synchronizing MWEB..."),
+                                round(mwebd_status.block_header_height * 100 / server_height)))
+                icon = read_QIcon("status_waiting.png")
+            elif mwebd_status.mweb_header_height < server_height:
+                network_text = ("{} ({}%)".format(_("Synchronizing MWEB..."),
+                                round(mwebd_status.mweb_header_height * 100 / server_height)))
+                icon = read_QIcon("status_waiting.png")
+            elif mwebd_status.mweb_utxos_height < server_height:
+                network_text = _("Synchronizing MWEB...")
+                icon = read_QIcon("status_waiting.png")
             else:
                 network_text = _("Connected")
                 p_bal = self.wallet.get_balances_for_piechart()
@@ -1431,7 +1454,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         """
         return self.utxo_list.get_spend_list()
 
-    def broadcast_or_show(self, tx: Transaction, *, invoice: 'Invoice' = None):
+    def broadcast_or_show(self, tx: Transaction, *, invoice: 'Invoice' = None, callback):
         if not tx.is_complete():
             self.show_transaction(tx, invoice=invoice)
             return
@@ -1439,10 +1462,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             self.show_error(_("You can't broadcast a transaction without a live network connection."))
             self.show_transaction(tx, invoice=invoice)
             return
-        self.broadcast_transaction(tx, invoice=invoice)
+        self.broadcast_transaction(tx, invoice=invoice, callback=callback)
 
-    def broadcast_transaction(self, tx: Transaction, *, invoice: Invoice = None):
-        self.send_tab.broadcast_transaction(tx, invoice=invoice)
+    def broadcast_transaction(self, tx: Transaction, *, invoice: Invoice = None, callback):
+        self.send_tab.broadcast_transaction(tx, invoice=invoice, callback=callback)
 
     @protected
     def sign_tx(
@@ -1580,6 +1603,20 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         self.wallet.set_frozen_state_of_coins(utxos_str, freeze)
         self.utxo_list.refresh_all()
         self.utxo_list.selectionModel().clearSelection()
+
+    def coinswap(self, utxo: PartialTxInput):
+        if not self.wallet.keystore.may_have_password(): return
+        txout = PartialTxOutput(scriptpubkey=utxo.scriptpubkey, value=utxo.value_sats())
+        make_tx = lambda _: PartialTransaction.from_io([utxo], [txout])
+        conf_dlg = ConfirmTxDialog(window=self, make_tx=make_tx, output_value='!', is_sweep=False)
+        cancelled, is_send, password, _ = conf_dlg.run()
+        if cancelled or not is_send: return
+        self.wallet.add_input_info(utxo)
+        try:
+            mwebd.coinswap(utxo, self.wallet.keystore, password)
+            self.show_message('Request sent')
+        except _InactiveRpcError as e:
+            self.show_error(e.details().capitalize())
 
     def create_list_tab(self, l):
         w = QWidget()

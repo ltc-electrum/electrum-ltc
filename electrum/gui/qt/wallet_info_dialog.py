@@ -150,6 +150,17 @@ class WalletInfoDialog(WindowModalDialog):
                 bip32fp_hbox.addWidget(bip32fp_text)
                 bip32fp_hbox.addStretch()
                 ks_vbox.addLayout(bip32fp_hbox)
+
+                if hasattr(ks, 'scan_secret') and ks.scan_secret:
+                    mweb_hbox = QHBoxLayout()
+                    mweb_hbox.setContentsMargins(0, 0, 0, 0)
+                    mweb_hbox.addWidget(WWLabel(_("MWEB view keys") + ':'))
+                    mweb_text = WWLabel(ks.scan_secret + '\n' + ks.spend_pubkey)
+                    mweb_text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                    mweb_hbox.addWidget(mweb_text)
+                    mweb_hbox.addStretch()
+                    ks_vbox.addLayout(mweb_hbox)
+
                 if wallet.can_enable_disable_keystore(ks):
                     ks_buttons = []
                     if not ks.is_watching_only():
