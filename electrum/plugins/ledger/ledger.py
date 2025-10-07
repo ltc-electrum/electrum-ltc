@@ -4,11 +4,12 @@
 from abc import ABC, abstractmethod
 import base64
 import hashlib
+from struct import pack
 from typing import Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING, Union
 
 import electrum_ecc as ecc
 
-from electrum import bip32, constants
+from electrum import bip32, constants, mwebd
 from electrum import descriptor
 from electrum.bip32 import BIP32Node, convert_bip32_intpath_to_strpath, normalize_bip32_derivation
 from electrum.bitcoin import EncodeBase58Check, is_b58_address, is_segwit_script_type, var_int
@@ -16,6 +17,7 @@ from electrum.crypto import hash_160
 from electrum.i18n import _
 from electrum.keystore import Hardware_KeyStore
 from electrum.logging import get_logger
+from electrum.mwebd_pb2 import LedgerApdu
 from electrum.plugin import Device, runs_in_hwd_thread
 from electrum.transaction import PartialTransaction, Transaction, PartialTxInput
 from electrum.util import bfh, UserFacingException, versiontuple
@@ -35,6 +37,7 @@ _logger = get_logger(__name__)
 try:
     import ledger_bitcoin
     from ledger_bitcoin import WalletPolicy, MultisigWallet, AddressType, Chain
+    from ledger_bitcoin.exception.device_exception import DeviceException
     from ledger_bitcoin.exception.errors import DenyError, NotSupportedError, SecurityStatusNotSatisfiedError
     from ledger_bitcoin.key import KeyOriginInfo
     from ledgercomm.interfaces.hid_device import HID
@@ -345,6 +348,24 @@ class Ledger_Client(HardwareClientBase, ABC):
     def get_master_fingerprint(self) -> bytes:
         return self.request_root_fingerprint_from_device()
 
+    def mweb_get_public_key(self, bip32_path, addr_index = None):
+        bip32_path = bip32.convert_bip32_path_to_list_of_uint32(bip32_path)
+        apdu = [0xeb, 5, 0, 0, 0, len(bip32_path)]
+        if addr_index is not None:
+            bip32_path.append(addr_index)
+            apdu[2] = 1
+        apdu.extend(pack('>%dI' % len(bip32_path), *bip32_path))
+        apdu[4] = len(apdu) - 5
+        return self.apdu_exchange(bytes(apdu))
+
+    def get_mweb_keys(self, bip32_path):
+        resp = self.mweb_get_public_key(bip32.normalize_bip32_derivation(bip32_path))
+        return resp[:32].hex(), resp[32:].hex()
+
+    @abstractmethod
+    def apdu_exchange(self, apdu: bytes) -> bytes:
+        pass
+
     @abstractmethod
     def show_address(self, address_path: str, txin_type: str):
         pass
@@ -518,6 +539,14 @@ class Ledger_Client_Legacy(Ledger_Client):
         if response is None:
             return False, None, None
         return True, response, response
+
+    @runs_in_hwd_thread
+    @test_pin_unlocked
+    def apdu_exchange(self, apdu: bytes) -> bytes:
+        try:
+            return bytes(self.dongleObject.dongle.exchange(apdu))
+        except BTChipException as e:
+            raise DeviceException(error_code=e.sw, ins=apdu[1])
 
     @runs_in_hwd_thread
     @test_pin_unlocked
@@ -933,6 +962,15 @@ class Ledger_Client_New(Ledger_Client):
 
     @runs_in_hwd_thread
     @test_pin_unlocked
+    def apdu_exchange(self, apdu: bytes) -> bytes:
+        sw, resp = self.client._make_request({"cla": apdu[0], "ins": apdu[1], "p1": apdu[2],
+                                              "p2": apdu[3], "data": apdu[5:]})
+        if sw != 0x9000:
+            raise DeviceException(error_code=sw, ins=apdu[1])
+        return resp
+
+    @runs_in_hwd_thread
+    @test_pin_unlocked
     def show_address(self, address_path: str, txin_type: str):
         client_ledger = self.client
         self.handler.show_message(_("Showing address ..."))
@@ -1203,10 +1241,40 @@ class Ledger_KeyStore(Hardware_KeyStore):
         return self.get_client_dongle_object().sign_transaction(self, *args, **kwargs)
 
     def show_address(self, sequence, *args, **kwargs):
+        if args[0] == 'mweb':
+            self.handler.show_message(_("Showing address ..."))
+            try:
+                self.get_client_dongle_object().mweb_get_public_key(self.get_derivation_prefix(), sequence[1] + 1)
+            except DenyError:
+                pass  # cancelled by user
+            except BaseException as e:
+                _logger.exception('Error while showing an address')
+                self.handler.show_error(e)
+            finally:
+                self.handler.finished()
+            return
+
         address_path = self.get_derivation_prefix() + "/%d/%d" % sequence
         address_path = normalize_bip32_derivation(address_path, hardened_char="'")
         address_path = address_path[2:]  # cut m/
         return self.get_client_dongle_object().show_address(address_path, *args, **kwargs)
+
+    def exchange_with_mwebd(self):
+        client = self.get_client_dongle_object()
+        try:
+            client.mweb_get_public_key(self.get_derivation_prefix())  # reset ledger mweb context
+            data = b''
+            while True:
+                data = mwebd.stub().LedgerExchange(LedgerApdu(data=data)).data
+                if not data: break
+                data = client.apdu_exchange(data)
+        except DenyError:
+            pass  # cancelled by user
+        except BaseException as e:
+            _logger.exception('Error while signing')
+            self.handler.show_error(e)
+        finally:
+            self.handler.finished()
 
 
 class LedgerPlugin(HW_PluginBase):
@@ -1235,7 +1303,7 @@ class LedgerPlugin(HW_PluginBase):
         0x70: "Ledger Flex",
     }
 
-    SUPPORTED_XTYPES = ('standard', 'p2wpkh-p2sh', 'p2wpkh', 'p2wsh-p2sh', 'p2wsh')
+    SUPPORTED_XTYPES = ('standard', 'p2wpkh-p2sh', 'p2wpkh', 'p2wsh-p2sh', 'p2wsh', 'mweb')
 
     def __init__(self, parent, config, name):
         HW_PluginBase.__init__(self, parent, config, name)
