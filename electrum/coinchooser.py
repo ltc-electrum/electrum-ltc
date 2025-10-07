@@ -23,14 +23,16 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 from collections import defaultdict
-from math import floor, log10
+from math import ceil, floor, log10
 from typing import NamedTuple, List, Callable, Sequence, Dict, Tuple, Mapping, Type, TYPE_CHECKING
 from decimal import Decimal
 
-from .bitcoin import sha256, COIN, is_address
+from .bitcoin import sha256, COIN, is_address, is_mweb_address
+from .keystore import KeyStore
 from .transaction import Transaction, PartialTransaction, PartialTxInput, PartialTxOutput
 from .util import NotEnoughFunds
 from .logging import Logger
+from . import mwebd
 
 if TYPE_CHECKING:
     from .simple_config import SimpleConfig
@@ -290,6 +292,7 @@ class CoinChooserBase(Logger):
             inputs: List[PartialTxInput],
             outputs: List[PartialTxOutput],
             change_addrs: Sequence[str],
+            keystore: KeyStore,
             fee_estimator_vb: Callable[[int | float | Decimal], int],
             dust_threshold: int,
             BIP69_sort: bool = True,
@@ -343,10 +346,28 @@ class CoinChooserBase(Logger):
                 return False
             # note re performance: so far this was constant time
             # what follows is linear in len(buckets)
-            total_weight = self._get_tx_weight(buckets, base_weight=base_weight)
-            return total_input >= spent_amount + fee_estimator_w(total_weight)
+            tx, _ = tx_from_buckets(buckets)
+            fee = fee_estimator_w(tx.estimated_weight())
+            if tx._original_tx is not None:
+                tx._original_tx = None
+                fee = fee + fee_estimator_vb(41) if tx.inputs() else 0
+            return tx.input_value() >= tx.output_value() + fee
 
         def tx_from_buckets(buckets):
+            tx, change = _tx_from_buckets(buckets)
+            canonical_change = [x for x in change if not is_mweb_address(x.address)]
+            tx._outputs = [x for x in tx.outputs() if not any(x is y for y in canonical_change)]
+            _, fee_increase = mwebd.create(tx, keystore, fee_estimator_vb)
+            sum_change = sum([x.value for x in change])
+            for x in change: x.value -= ceil(x.value / sum_change * fee_increase)
+            tx._outputs = [x for x in tx.outputs() if x.value > 0]
+            tx2, _ = mwebd.create(tx, keystore, fee_estimator_vb)
+            change_added_back = [x for x in canonical_change if x.value >= dust_threshold]
+            tx.add_outputs(change_added_back)
+            if tx2 is not tx: tx2.add_outputs(change_added_back)
+            return tx2, [x for x in change if any(x is y for y in tx.outputs())]
+
+        def _tx_from_buckets(buckets):
             return self._construct_tx_from_selected_buckets(
                 buckets=buckets,
                 base_tx=base_tx,
