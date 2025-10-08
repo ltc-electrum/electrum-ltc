@@ -411,7 +411,8 @@ class WCKeystoreType(WalletWizardComponent):
         WalletWizardComponent.__init__(self, parent, wizard, title=_('Keystore'))
         message = _('Do you want to create a new seed, or to restore a wallet using an existing seed?')
         choices = [
-            ChoiceItem(key='createseed', label=_('Create a new seed')),
+            ChoiceItem(key='createseed', label=_('Create a new segwit seed')),
+            ChoiceItem(key='mwebseed', label=_('Create a new MWEB seed')),
             ChoiceItem(key='haveseed', label=_('I already have a seed')),
             ChoiceItem(key='masterkey', label=_('Use a master key')),
             ChoiceItem(key='hardware', label=_('Use a hardware device')),
@@ -706,6 +707,8 @@ class WCScriptAndDerivation(WalletWizardComponent, Logger):
                            extra_data=bip44_derivation(0, bip43_purpose=49)),
                 ChoiceItem(key='p2wpkh', label='native segwit (p2wpkh)',
                            extra_data=bip44_derivation(0, bip43_purpose=84)),
+                ChoiceItem(key='mweb', label='MWEB (mweb)',
+                           extra_data=bip44_derivation(0, bip43_purpose=1000)),
             ]
 
         if self.wizard_data['wallet_type'] == 'standard' and not self.wizard_data['keystore_type'] == 'hardware':
@@ -1381,6 +1384,8 @@ class WCHWXPub(WalletWizardComponent, Logger):
         self.root_fingerprint = None
         self.label = None
         self.soft_device_id = None
+        self.scan_secret = None
+        self.spend_pubkey = None
 
         ok_icon = QLabel()
         ok_icon.setPixmap(QPixmap(icon_path('confirmed.png')).scaledToWidth(48, mode=Qt.TransformationMode.SmoothTransformation))
@@ -1417,6 +1422,8 @@ class WCHWXPub(WalletWizardComponent, Logger):
                 self.root_fingerprint = _client.request_root_fingerprint_from_device()
                 self.label = _client.label()
                 self.soft_device_id = _client.get_soft_device_id()
+                if _xtype == 'mweb' and hasattr(_client, 'get_mweb_keys'):
+                    self.scan_secret, self.spend_pubkey = _client.get_mweb_keys(_derivation)
             except UserFacingException as e:
                 self.error = str(e)
                 self.logger.error(repr(e))
@@ -1462,6 +1469,8 @@ class WCHWXPub(WalletWizardComponent, Logger):
         cosigner_data['root_fingerprint'] = self.root_fingerprint
         cosigner_data['label'] = self.label
         cosigner_data['soft_device_id'] = self.soft_device_id
+        cosigner_data['scan_secret'] = self.scan_secret
+        cosigner_data['spend_pubkey'] = self.spend_pubkey
 
 
 class WCHWUninitialized(WalletWizardComponent):

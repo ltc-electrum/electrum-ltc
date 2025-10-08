@@ -1269,10 +1269,10 @@ class Ledger_KeyStore(Hardware_KeyStore):
                 if not data: break
                 data = client.apdu_exchange(data)
         except DenyError:
-            pass  # cancelled by user
+            raise UserFacingException(_('Cancelled by user'))
         except BaseException as e:
             _logger.exception('Error while signing')
-            self.handler.show_error(e)
+            raise UserFacingException(e)
         finally:
             self.handler.finished()
 

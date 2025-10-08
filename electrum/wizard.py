@@ -354,7 +354,7 @@ class KeystoreWizard(AbstractWizard):
         return seed_valid, seed_type, validation_message, can_passphrase
 
     def keystore_from_data(self, wallet_type: str, data: dict):
-        if data['keystore_type'] in ['createseed', 'haveseed'] and 'seed' in data:
+        if data['keystore_type'] in ['createseed', 'mwebseed', 'haveseed'] and 'seed' in data:
             seed_extension = data.get('seed_extra_words', '')
             if data['seed_variant'] == 'electrum':
                 for_multisig = wallet_type in ['multisig']
@@ -392,7 +392,9 @@ class KeystoreWizard(AbstractWizard):
             'root_fingerprint': data['root_fingerprint'],
             'xpub': data['master_key'],
             'label': data['label'],
-            'soft_device_id': data['soft_device_id']
+            'soft_device_id': data['soft_device_id'],
+            'mweb_scan_secret': data['scan_secret'],
+            'mweb_spend_pubkey': data['spend_pubkey'],
         })
 
 
@@ -524,6 +526,7 @@ class NewWalletWizard(KeystoreWizard):
         t = wizard_data['keystore_type']
         return {
             'createseed': 'create_seed',
+            'mwebseed': 'create_seed',
             'haveseed': 'have_seed',
             'masterkey': 'have_master_key',
             'hardware': 'choose_hardware_device'
@@ -658,7 +661,7 @@ class NewWalletWizard(KeystoreWizard):
             if wallet_type == 'standard':
                 if isinstance(k, keystore.Xpub):  # has bip32 xpub
                     t1 = xpub_type(k.xpub)
-                    if t1 not in ['standard', 'p2wpkh', 'p2wpkh-p2sh']:  # disallow Ypub/Zpub
+                    if t1 not in ['standard', 'p2wpkh', 'p2wpkh-p2sh', 'mweb']:  # disallow Ypub/Zpub
                         validation_message = '%s: %s' % (_('Wrong key type'), t1)
                     else:
                         key_valid = True
@@ -708,9 +711,9 @@ class NewWalletWizard(KeystoreWizard):
                     #       In particular, bech32 addresses can be either all-lowercase or all-uppercase.
                     #       TODO we should normalize them, but it only makes sense if we also do a walletDB-upgrade.
                     addresses[addr] = {}
-        elif data['keystore_type'] in ['createseed', 'haveseed']:
+        elif data['keystore_type'] in ['createseed', 'mwebseed', 'haveseed']:
             seed_extension = data['seed_extra_words'] if data['seed_extend'] else ''
-            if data['seed_type'] in ['old', 'standard', 'segwit']:
+            if data['seed_type'] in ['old', 'standard', 'segwit', 'mweb']:
                 self._logger.debug('creating keystore from electrum seed')
                 k = keystore.from_seed(data['seed'], passphrase=seed_extension, for_multisig=data['wallet_type'] == 'multisig')
             elif data['seed_type'] in ['bip39', 'slip39']:

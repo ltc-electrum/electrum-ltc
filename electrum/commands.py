@@ -37,6 +37,7 @@ from collections import defaultdict
 from functools import wraps
 from decimal import Decimal, InvalidOperation
 from typing import Optional, TYPE_CHECKING, Dict, List, Any, Union
+from google.protobuf.json_format import MessageToDict
 import os
 import re
 
@@ -70,6 +71,7 @@ from .address_synchronizer import TX_HEIGHT_LOCAL
 from .mnemonic import Mnemonic
 from .lnutil import (channel_id_from_funding_tx, LnFeatures, SENT, MIN_FINAL_CLTV_DELTA_ACCEPTED,
                      PaymentFeeBudget, NBLOCK_CLTV_DELTA_TOO_FAR_INTO_FUTURE)
+from .mwebd_pb2 import StatusRequest
 from .plugin import run_hook, DeviceMgr, Plugins
 from .version import ELECTRUM_VERSION
 from .simple_config import SimpleConfig
@@ -78,6 +80,7 @@ from . import GuiImportError
 from . import crypto
 from . import constants
 from . import descriptor
+from . import mwebd
 
 if TYPE_CHECKING:
     from .network import Network
@@ -259,6 +262,11 @@ class Commands(Logger):
             'version': ELECTRUM_VERSION,
             'fee_estimates': self.network.fee_estimates.get_data()
         }
+        try:
+            status = mwebd.stub().Status(StatusRequest())
+            status = MessageToDict(status, preserving_proto_field_name=True)
+            response['mwebd_status'] = status
+        except: ()
         return response
 
     @command('n')
