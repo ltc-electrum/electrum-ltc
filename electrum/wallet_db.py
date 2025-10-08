@@ -1350,8 +1350,7 @@ class WalletDB(JsonDB):
         d = self.txo.get(tx_hash, {}).get(address, {})
         def mweb(n):
             vals = list(self.txo_mweb.get(tx_hash, {}).get(n, []))
-            vals += [False, None][len(vals):]
-            return tuple(vals[:2])
+            return (vals + [False, None][len(vals):])[:2]
         return {int(n): (v, cb, *mweb(n)) for (n, (v, cb)) in d.items()}
 
     @modifier

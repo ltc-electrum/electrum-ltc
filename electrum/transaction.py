@@ -1004,9 +1004,6 @@ class Transaction:
         n_vin = vds.read_compact_size()
         is_segwit = (n_vin == 0)
         if is_segwit:
-            marker = vds.read_bytes(1)
-            if marker != b'\x01':
-                raise SerializationError('invalid txn marker byte: {}'.format(marker))
             self._flag = vds.read_bytes(1)
             if self._flag[0] & 9 == 0:
                 raise SerializationError('invalid txn marker byte: {}'.format(self._flag))
@@ -2096,6 +2093,8 @@ class PartialTxInput(TxInput, PSBTSection):
             return True
         if desc := self.script_descriptor:
             return desc.is_segwit()
+        if is_mweb_address(self.address):
+            return False
         if guess_for_address:
             dummy_desc = create_dummy_descriptor_from_address(self.address)
             return dummy_desc.is_segwit()

@@ -56,7 +56,7 @@ from .util import (
     OnchainHistoryItem, read_json_file, write_json_file, UserFacingException, FileImportFailed, EventListener,
     event_listener
 )
-from .bitcoin import COIN, is_address, is_minikey, relayfee, dust_threshold, DummyAddress, DummyAddressUsedInTxException
+from .bitcoin import COIN, is_address, is_mweb_address, is_minikey, relayfee, dust_threshold, DummyAddress, DummyAddressUsedInTxException
 from .keystore import (
     load_keystore, Hardware_KeyStore, KeyStore, KeyStoreWithMPK, AddressIndexGeneric, CannotDerivePubkey
 )
@@ -1397,7 +1397,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             await asyncio.sleep(0.1)
             async with self.network.bhi_lock:
                 header = self.network.blockchain().read_header(height)
-        return TxMinedInfo(height=height, timestamp=header.get('timestamp'),
+        return TxMinedInfo(_height=height, timestamp=header.get('timestamp'),
                            txpos=0, header_hash=hash_header(header))
 
     async def _check_mweb_prevout(self, prevout):
@@ -2185,7 +2185,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             tx = PartialTransaction.from_io(list(tx_inputs), list(outputs))
             tx, _ = mwebd.create(tx, self.keystore, fee_estimator)
 
-        assert len(tx.outputs()) > 0, "any bitcoin tx must have at least 1 output by consensus"
+        assert tx.output_value() > 0, "any bitcoin tx must have at least 1 output by consensus"
         if locktime is None:
             # Timelock tx to current height.
             locktime = get_locktime_for_new_transaction(self.network)
@@ -2752,7 +2752,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         txin.is_mine = True
         self._add_txinout_derivation_info(txin, address, only_der_suffix=only_der_suffix)
         txin.block_height = self.adb.get_tx_height(txin.prevout.txid.hex()).height()
-        if txin.script_type == 'mweb':
+        if is_mweb_address(txin.address):
             d = self.db.get_txo_addr(txin.prevout.txid.hex(), address)
             v, cb, po, txin.mweb_output_id = d[txin.prevout.out_idx]
             index = self.get_address_index(address)
@@ -2850,7 +2850,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             raise TransactionPotentiallyDangerousException('Not signing transaction:\n' + sh_danger.get_long_message())
 
         # find out if we are replacing a txbatcher transaction
-        prevout_str = tx.inputs()[0].prevout.to_str()
+        prevout_str = tx.inputs()[0].prevout.to_str() if tx.inputs() else ''
         batch = self.txbatcher.find_batch_by_prevout(prevout_str)
         if batch:
             batch.add_sweep_info_to_tx(tx)
@@ -4297,7 +4297,7 @@ class Standard_Wallet(Simple_Wallet, Deterministic_Wallet):
     async def _add_transaction(self, tx, height):
         self.adb.add_unverified_or_unconfirmed_tx(tx.txid(), height)
         self.adb.add_transaction(tx, allow_unrelated=True)
-        self.adb.set_up_to_date(True)
+        self.adb.up_to_date_changed()
         if height > 0:
             async def f():
                 tx_info = await self._get_tx_mined_info(height)

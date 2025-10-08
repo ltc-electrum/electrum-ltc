@@ -450,7 +450,7 @@ def address_to_script(addr: str, *, net=None) -> bytes:
     if witprog is not None:
         if witver != 0:
             raise BitcoinException(f'impossible witness version: {witver}')
-        return bytes(witprog).hex()
+        return bytes(witprog)
     addrtype, hash_160_ = b58_address_to_hash160(addr)
     if addrtype == net.ADDRTYPE_P2PKH:
         script = pubkeyhash_to_p2pkh_script(hash_160_)

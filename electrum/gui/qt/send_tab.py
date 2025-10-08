@@ -372,7 +372,7 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
                 tx._original_tx._cached_txid = tx.txid()
                 self.wallet.adb.add_unverified_or_unconfirmed_tx(tx.txid(), 0)
                 self.wallet.adb.add_transaction(tx._original_tx)
-                self.wallet.adb.set_up_to_date(True)
+                self.wallet.adb.up_to_date_changed()
             with self.wallet.lock:
                 self.wallet._pending_mweb_output_ids.difference_update(mweb_output_ids)
         def sign_done(success):
