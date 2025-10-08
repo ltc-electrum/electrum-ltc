@@ -385,7 +385,9 @@ class TxInput:
             return
         # note that tx might be a PartialTransaction
         # serialize and de-serialize tx now. this might e.g. convert a complete PartialTx to a Tx
+        tx_hash = tx.txid()
         tx = tx_from_any(str(tx))
+        tx._cached_txid = tx_hash
         # 'utxo' field should not be a PSBT:
         if not tx.is_complete():
             return
@@ -1059,6 +1061,8 @@ class Transaction:
         if txin.is_p2sh_segwit() and txin.redeem_script:
             return construct_script([txin.redeem_script])
         if txin.is_native_segwit():
+            return b""
+        if is_mweb_address(txin.address):
             return b""
 
         dummy_desc = None
@@ -1983,6 +1987,8 @@ class PartialTxInput(TxInput, PSBTSection):
                 pass
             else:
                 return True
+        if is_mweb_address(self.address):
+            return self.mweb_output_id and self.mweb_address_index is not None
         return False
 
     def get_satisfaction_progress(self) -> Tuple[int, int]:
@@ -2133,6 +2139,9 @@ class PartialTxInput(TxInput, PSBTSection):
             if script := sc.scriptcode_for_sighash:
                 return script
             raise Exception(f"don't know scriptcode for descriptor: {desc.to_string()}")
+
+        if is_mweb_address(self.address):
+            return b''
 
         raise UnknownTxinType(f'cannot construct preimage_script')
 

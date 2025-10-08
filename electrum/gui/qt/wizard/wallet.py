@@ -454,6 +454,8 @@ class WCCreateSeed(WalletWizardComponent):
     def on_ready(self):
         if self.wizard_data['wallet_type'] == '2fa':
             self.seed_type = '2fa_segwit'
+        if self.wizard_data['keystore_type'] == 'mwebseed':
+            self.seed_type = 'mweb'
         QTimer.singleShot(1, self.create_seed)
 
     def apply(self):
