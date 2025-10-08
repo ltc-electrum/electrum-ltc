@@ -73,7 +73,7 @@ class WalletUnfinished(WalletFileException):
 # seed_version is now used for the version of the wallet file
 OLD_SEED_VERSION = 4        # electrum versions < 2.0
 NEW_SEED_VERSION = 11       # electrum versions >= 2.0
-FINAL_SEED_VERSION = 1000   # electrum >= 2.7 will set this to prevent
+FINAL_SEED_VERSION = 61     # electrum >= 2.7 will set this to prevent
                             # old versions from overwriting new format
 
 
@@ -1343,15 +1343,16 @@ class WalletDB(JsonDB):
         return list(d.items())
 
     @locked
-    def get_txo_addr(self, tx_hash: str, address: str) -> Dict[int, Tuple[int, bool]]:
+    def get_txo_addr(self, tx_hash: str, address: str) -> Dict[int, Tuple[int, bool, bool, Optional[str]]]:
         """Returns a dict: output_index -> (value, is_coinbase, is_pegout, mweb_output_id)."""
         assert isinstance(tx_hash, str)
         assert isinstance(address, str)
         d = self.txo.get(tx_hash, {}).get(address, {})
-        try:
-            return {int(n): (v, cb, po, mw) for (n, (v, cb, po, mw)) in d.items()}
-        except ValueError:
-            return {int(n): (v, cb, False, None) for (n, (v, cb)) in d.items()}
+        def mweb(n):
+            vals = list(self.txo_mweb.get(tx_hash, {}).get(n, []))
+            vals += [False, None][len(vals):]
+            return tuple(vals[:2])
+        return {int(n): (v, cb, *mweb(n)) for (n, (v, cb)) in d.items()}
 
     @modifier
     def add_txi_addr(self, tx_hash: str, addr: str, ser: str, v: int) -> None:
@@ -1382,7 +1383,8 @@ class WalletDB(JsonDB):
         d = self.txo[tx_hash]
         if addr not in d:
             d[addr] = {}
-        d[addr][n] = (v, is_coinbase, is_pegout, mweb_output_id)
+        d[addr][n] = (v, is_coinbase)
+        self.txo_mweb.setdefault(tx_hash, {})[n] = (is_pegout, mweb_output_id)
 
     @locked
     def list_txi(self) -> Sequence[str]:
@@ -1401,6 +1403,7 @@ class WalletDB(JsonDB):
     def remove_txo(self, tx_hash: str) -> None:
         assert isinstance(tx_hash, str)
         self.txo.pop(tx_hash, None)
+        self.txo_mweb.pop(tx_hash, None)
 
     @locked
     def list_spent_outpoints(self) -> Sequence[Tuple[str, str]]:
@@ -1693,6 +1696,7 @@ class WalletDB(JsonDB):
         self.txi = self.get_dict('txi')                          # type: Dict[str, Dict[str, Dict[str, int]]]
         # txid -> address -> output_index -> (value, is_coinbase)
         self.txo = self.get_dict('txo')                          # type: Dict[str, Dict[str, Dict[str, Tuple[int, bool]]]]
+        self.txo_mweb = self.get_dict('txo_mweb')
         self.transactions = self.get_dict('transactions')        # type: Dict[str, Transaction]
         self.spent_outpoints = self.get_dict('spent_outpoints')  # txid -> output_index -> next_txid
         self.history = self.get_dict('addr_history')             # address -> list of (txid, height)
@@ -1717,6 +1721,7 @@ class WalletDB(JsonDB):
     def clear_history(self):
         self.txi.clear()
         self.txo.clear()
+        self.txo_mweb.clear()
         self.spent_outpoints.clear()
         self.transactions.clear()
         self.history.clear()
