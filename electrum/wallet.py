@@ -2813,6 +2813,8 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             #       Example: we have p2pkh-like addresses and txin is a multisig that involves our pubkey.
             if not self.is_mine(txin.address):
                 continue
+            if is_mweb_address(txin.address):
+                return True
             for k in self.get_keystores():
                 if k.can_sign_txin(txin):
                     return True

@@ -39,6 +39,7 @@ import hashlib
 import functools
 import random
 import enum
+import grpc
 
 import aiorpcx
 from aiorpcx import RPCSession, Notification, NetAddress, NewlineFramer
@@ -1358,6 +1359,9 @@ class Interface(Logger):
         except aiorpcx.jsonrpc.CodeMessageError as e:
             self.logger.info(f"broadcast_transaction error [DO NOT TRUST THIS MESSAGE]: {error_text_str_to_safe_str(repr(e))}. tx={str(tx)}")
             raise TxBroadcastServerReturnedError(sanitize_tx_broadcast_response(e.message)) from e
+        except grpc.aio._call.AioRpcError as e:
+            self.logger.info(f"broadcast_transaction error [DO NOT TRUST THIS MESSAGE]: {error_text_str_to_safe_str(repr(e))}. tx={str(tx)}")
+            raise TxBroadcastServerReturnedError(e.details()) from e
         except BaseException as e:  # intentional BaseException for sanity!
             self.logger.info(f"broadcast_transaction error2 [DO NOT TRUST THIS MESSAGE]: {error_text_str_to_safe_str(repr(e))}. tx={str(tx)}")
             send_exception_to_crash_reporter(e)

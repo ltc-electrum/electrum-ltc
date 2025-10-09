@@ -2562,6 +2562,8 @@ class PartialTransaction(Transaction):
         return sig + Sighash.to_sigbytes(sighash)
 
     def is_complete(self) -> bool:
+        if all(is_mweb_address(txin.address) for txin in self.inputs()):
+            return sum(self._extra_bytes) > 2
         return all([txin.is_complete() for txin in self.inputs()])
 
     def signature_count(self) -> Tuple[int, int]:

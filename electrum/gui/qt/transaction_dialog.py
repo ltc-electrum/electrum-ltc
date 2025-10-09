@@ -844,6 +844,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         tx_mined_status = tx_details.tx_mined_status
         exp_n = tx_details.mempool_depth_bytes
         amount, fee = tx_details.amount, tx_details.fee
+        tx_details = self.wallet.get_tx_info(self.tx)
         size = self.tx.estimated_size()
         txid = self.tx.txid()
         fx = self.main_window.fx
@@ -862,7 +863,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         self.broadcast_button.setEnabled(tx_details.can_broadcast)
         can_sign = not self.tx.is_complete() and \
-            (self.wallet.can_sign(self.tx) or bool(self.external_keypairs))
+            (self.wallet.can_sign(tx) or bool(self.external_keypairs))
         self.sign_button.setEnabled(can_sign and not self.io_widget.sighash_danger.needs_reject())
         if sh_danger_msg := self.io_widget.sighash_danger.get_long_message():
             self.sign_button.setToolTip(sh_danger_msg)
