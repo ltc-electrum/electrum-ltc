@@ -325,7 +325,8 @@ class Ledger_Client(HardwareClientBase, ABC):
         hid_device.open()
         transport = ledger_bitcoin.TransportClient('hid', hid=hid_device)
         try:
-            cl = ledger_bitcoin.createClient(transport, chain=get_chain())
+            cl = ledger_bitcoin.client.NewClient(transport, chain=get_chain())
+            cl.get_master_fingerprint()
         except (ledger_bitcoin.exception.errors.InsNotSupportedError,
                 ledger_bitcoin.exception.errors.ClaNotSupportedError) as e:
             # This can happen on very old versions.
@@ -349,7 +350,7 @@ class Ledger_Client(HardwareClientBase, ABC):
         return self.request_root_fingerprint_from_device()
 
     def mweb_get_public_key(self, bip32_path, addr_index = None):
-        bip32_path = bip32.convert_bip32_path_to_list_of_uint32(bip32_path)
+        bip32_path = bip32.convert_bip32_strpath_to_intpath(bip32_path)
         apdu = [0xeb, 5, 0, 0, 0, len(bip32_path)]
         if addr_index is not None:
             bip32_path.append(addr_index)

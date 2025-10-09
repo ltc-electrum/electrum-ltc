@@ -755,7 +755,7 @@ class NewWalletWizard(KeystoreWizard):
                     if t1 not in ['standard', 'p2wsh', 'p2wsh-p2sh']:
                         raise Exception('wrong key type %s' % t1)
                 else:
-                    if t1 not in ['standard', 'p2wpkh', 'p2wpkh-p2sh']:
+                    if t1 not in ['standard', 'p2wpkh', 'p2wpkh-p2sh', 'mweb']:
                         raise Exception('wrong key type %s' % t1)
             else:
                 raise Exception(f'unexpected keystore type: {type(k)}')
