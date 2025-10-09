@@ -856,8 +856,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         self.help_menu.addAction(_("&Official website"), lambda: webopen("https://electrum-ltc.org"))
         self.help_menu.addSeparator()
         self.help_menu.addAction(_("&Documentation"), lambda: webopen("http://docs.electrum.org/")).setShortcut(QKeySequence.StandardKey.HelpContents)
-        if not constants.net.TESTNET:
-            self.help_menu.addAction(_("&Bitcoin Paper"), self.show_bitcoin_paper)
         self.help_menu.addAction(_("&Report Bug"), self.show_report_bug)
         self.help_menu.addSeparator()
         self.help_menu.addAction(_("&Donate to server"), self.donate_to_server)
