@@ -834,12 +834,13 @@ class TxDialog(QDialog, MessageBoxMixin):
     def update(self):
         if self.tx is None:
             return
-        self.io_widget.update(self.tx)
+        tx = getattr(self.tx, '_original_tx', None) or self.tx
+        self.io_widget.update(tx)
         desc = self.desc
         base_unit = self.main_window.base_unit()
         format_amount = self.main_window.format_amount
         format_fiat_and_units = self.main_window.format_fiat_and_units
-        tx_details = self.wallet.get_tx_info(self.tx)
+        tx_details = self.wallet.get_tx_info(tx)
         tx_mined_status = tx_details.tx_mined_status
         exp_n = tx_details.mempool_depth_bytes
         amount, fee = tx_details.amount, tx_details.fee

@@ -54,6 +54,7 @@ from .util import (
     WalletFileException, BitcoinException, InvalidPassword, format_time, timestamp_to_datetime,
     Satoshis, Fiat, TxMinedInfo, quantize_feerate, OrderedDictWithIndex, multisig_type, parse_max_spend,
     OnchainHistoryItem, read_json_file, write_json_file, UserFacingException, FileImportFailed, EventListener,
+    DeepCopyableFunc,
     event_listener
 )
 from .bitcoin import COIN, is_address, is_mweb_address, is_minikey, relayfee, dust_threshold, DummyAddress, DummyAddressUsedInTxException
@@ -2186,7 +2187,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             tx, _ = mwebd.create(tx, self.keystore, fee_estimator)
 
         assert tx.output_value() > 0, "any bitcoin tx must have at least 1 output by consensus"
-        if tx._original_tx: tx._fee_estimator = fee_estimator
+        if tx._original_tx: tx._fee_estimator = DeepCopyableFunc(fee_estimator)
         if locktime is None:
             # Timelock tx to current height.
             locktime = get_locktime_for_new_transaction(self.network)
@@ -2868,7 +2869,6 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             tx._outputs = tmp_tx._outputs
             tx._extra_bytes = tmp_tx._extra_bytes
             tx.add_outputs(change)
-            del tx._fee_estimator
 
         # sign with make_witness
         for i, txin in enumerate(tx.inputs()):

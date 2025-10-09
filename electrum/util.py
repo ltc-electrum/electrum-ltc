@@ -2387,3 +2387,14 @@ class ChoiceItem:
     key: Any
     label: str  # user facing string
     extra_data: Any = None
+
+
+class DeepCopyableFunc:
+    def __init__(self, func):
+        self.func = func
+
+    def __call__(self, *args, **kwargs):
+        return self.func(*args, **kwargs)
+
+    def __deepcopy__(self, memo):
+        return self
