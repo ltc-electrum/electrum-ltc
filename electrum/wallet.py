@@ -2186,6 +2186,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             tx, _ = mwebd.create(tx, self.keystore, fee_estimator)
 
         assert tx.output_value() > 0, "any bitcoin tx must have at least 1 output by consensus"
+        if tx._original_tx: tx._fee_estimator = fee_estimator
         if locktime is None:
             # Timelock tx to current height.
             locktime = get_locktime_for_new_transaction(self.network)
@@ -2862,11 +2863,12 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             for txout in tx._original_tx.outputs():
                 is_change = any(txout is o for o in tx.outputs())
                 (change if is_change else tmp_tx._outputs).append(txout)
-            tmp_tx, _ = mwebd.create(tmp_tx, self.keystore, self.config.estimate_fee,
+            tmp_tx, _ = mwebd.create(tmp_tx, self.keystore, tx._fee_estimator,
                                      dry_run=False, password=password)
             tx._outputs = tmp_tx._outputs
             tx._extra_bytes = tmp_tx._extra_bytes
             tx.add_outputs(change)
+            del tx._fee_estimator
 
         # sign with make_witness
         for i, txin in enumerate(tx.inputs()):
