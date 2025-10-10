@@ -418,6 +418,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         Logger.__init__(self)
 
         self.network = None
+        self._event_lock = asyncio.Lock()
         self.adb = AddressSynchronizer(db, config, name=self.diagnostic_name())
         for addr in self.get_addresses():
             self.adb.add_address(addr)
@@ -601,7 +602,8 @@ class Abstract_Wallet(ABC, Logger, EventListener):
     async def on_event_adb_set_up_to_date(self, adb):
         if self.adb != adb:
             return
-        num_new_addrs = await run_in_thread(self.synchronize)
+        async with self._event_lock:
+            num_new_addrs = await run_in_thread(self.synchronize)
         up_to_date = self.adb.is_up_to_date() and num_new_addrs == 0
         with self.lock:
             status_changed = self._up_to_date != up_to_date
