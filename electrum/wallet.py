@@ -66,6 +66,7 @@ from .fee_policy import FeePolicy, FixedFeePolicy, FEE_RATIO_HIGH_WARNING, FEERA
 from .storage import StorageEncryptionVersion, WalletStorage
 from .wallet_db import WalletDB
 from .transaction import (
+    tx_from_any,
     Transaction, TxInput, TxOutput, PartialTransaction, PartialTxInput, PartialTxOutput, TxOutpoint, Sighash
 )
 from .blockchain import hash_header
@@ -418,7 +419,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         Logger.__init__(self)
 
         self.network = None
-        self._event_lock = asyncio.Lock()
+        self._async_lock = asyncio.Lock()
         self.adb = AddressSynchronizer(db, config, name=self.diagnostic_name())
         for addr in self.get_addresses():
             self.adb.add_address(addr)
@@ -427,7 +428,6 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         self._tx_parents_cache = {}
         self._default_labels = {}
         self._accounting_addresses = set()  # addresses counted as ours after successful sweep
-        self._pending_mweb_output_ids = set()
 
         self.taskgroup = None
 
@@ -602,7 +602,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
     async def on_event_adb_set_up_to_date(self, adb):
         if self.adb != adb:
             return
-        async with self._event_lock:
+        async with self._async_lock:
             num_new_addrs = await run_in_thread(self.synchronize)
         up_to_date = self.adb.is_up_to_date() and num_new_addrs == 0
         with self.lock:
@@ -3697,6 +3697,24 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         util.trigger_callback('wallet_updated', self)
         self.adb.set_future_tx(tx.txid(), wanted_height=wanted_height)
 
+    async def _add_transaction(self, tx, height):
+        self.adb.add_unverified_or_unconfirmed_tx(tx.txid(), height)
+        self.adb.add_transaction(tx)
+        self.adb.up_to_date_changed()
+        if height > 0:
+            async def f():
+                tx_info = await self._get_tx_mined_info(height)
+                self.adb.add_verified_tx(tx.txid(), tx_info)
+            await self.taskgroup.spawn(f())
+
+    async def broadcast_transaction(self, tx):
+        async with self._async_lock:
+            await self.network.broadcast_transaction(tx)
+            if tx._original_tx:
+                tx2 = tx_from_any(Transaction.serialize(tx._original_tx))
+                tx2._cached_txid = tx.txid()
+                await self._add_transaction(tx2, 0)
+
 
 class Simple_Wallet(Abstract_Wallet):
     # wallet with a single keystore
@@ -4276,22 +4294,15 @@ class Standard_Wallet(Simple_Wallet, Deterministic_Wallet):
                                              self.network.asyncio_loop)
 
     async def subscribe_mweb_utxos(self, scan_secret):
-        stub = mwebd.stub_async()
-        async for utxo in stub.Utxos(UtxosRequest(scan_secret=scan_secret)):
-            if utxo.address == '': continue
-            while True:
-                with self.lock:
-                    if utxo.output_id not in self._pending_mweb_output_ids:
-                        break
-                await asyncio.sleep(0.1)
-            exists = False
+        async for utxo in mwebd.stub_async().Utxos(UtxosRequest(scan_secret=scan_secret)):
+            if not utxo.address: continue
+            async with self._async_lock: exists = False
             scripthash = bitcoin.address_to_scripthash(utxo.address)
             for prevout, v in self.db.get_prevouts_by_scripthash(scripthash):
                 if v == utxo.value:
                     tx = self.db.get_transaction(prevout.txid.hex())
                     txout = tx.outputs()[prevout.out_idx]
-                    if txout.mweb_output_id == utxo.output_id:
-                        exists = True
+                    if exists := txout.mweb_output_id == utxo.output_id:
                         break
             if not exists:
                 tx = Transaction(None)
@@ -4302,16 +4313,6 @@ class Standard_Wallet(Simple_Wallet, Deterministic_Wallet):
             hist[tx.txid()] = utxo.height
             self.db.set_addr_history(utxo.address, list(hist.items()))
             await self._add_transaction(tx, utxo.height)
-
-    async def _add_transaction(self, tx, height):
-        self.adb.add_unverified_or_unconfirmed_tx(tx.txid(), height)
-        self.adb.add_transaction(tx, allow_unrelated=True)
-        self.adb.up_to_date_changed()
-        if height > 0:
-            async def f():
-                tx_info = await self._get_tx_mined_info(height)
-                self.adb.add_verified_tx(tx.txid(), tx_info)
-            await self.taskgroup.spawn(f())
 
     def has_support_for_slip_19_ownership_proofs(self) -> bool:
         return self.keystore.has_support_for_slip_19_ownership_proofs()

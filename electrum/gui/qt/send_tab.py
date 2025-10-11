@@ -366,24 +366,9 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
             self.window.show_transaction(tx, external_keypairs=external_keypairs, invoice=invoice)
             return
         self.save_pending_invoice()
-        mweb_output_ids = []
-        def broadcast_done(success):
-            if success and tx._original_tx:
-                tx._original_tx._cached_txid = tx.txid()
-                self.wallet.adb.add_unverified_or_unconfirmed_tx(tx.txid(), 0)
-                self.wallet.adb.add_transaction(tx._original_tx)
-                self.wallet.adb.up_to_date_changed()
-            with self.wallet.lock:
-                self.wallet._pending_mweb_output_ids.difference_update(mweb_output_ids)
         def sign_done(success):
             if success:
-                if tx._original_tx:
-                    for txout in tx._original_tx.outputs():
-                        if txout.mweb_output_id:
-                            mweb_output_ids.append(txout.mweb_output_id)
-                with self.wallet.lock:
-                    self.wallet._pending_mweb_output_ids.update(mweb_output_ids)
-                self.window.broadcast_or_show(tx, invoice=invoice, callback=broadcast_done)
+                self.window.broadcast_or_show(tx, invoice=invoice)
         self.window.sign_tx(
             tx,
             callback=sign_done,
@@ -761,7 +746,7 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
         coro = lnworker.pay_invoice(invoice, amount_msat=amount_msat)
         self.window.run_coroutine_from_thread(coro, _('Sending payment'))
 
-    def broadcast_transaction(self, tx: Transaction, *, invoice: Invoice = None, callback):
+    def broadcast_transaction(self, tx: Transaction, *, invoice: Invoice = None):
         if hasattr(tx, 'swap_payment_hash'):
             sm = self.wallet.lnworker.swap_manager
             swap = sm.get_swap(tx.swap_payment_hash)
@@ -780,7 +765,7 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
             if invoice and invoice.has_expired():
                 return False, _("Invoice has expired")
             try:
-                self.network.run_from_another_thread(self.network.broadcast_transaction(tx))
+                self.network.run_from_another_thread(self.wallet.broadcast_transaction(tx))
             except TxBroadcastError as e:
                 return False, e.get_message_for_gui()
             except BestEffortRequestFailed as e:
@@ -808,7 +793,6 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
             # GUI thread
             if result:
                 success, msg = result
-                callback(success)
                 if success:
                     parent.show_message(_('Payment sent.') + '\n' + msg)
                     self.invoice_list.update()

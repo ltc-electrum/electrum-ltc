@@ -1452,7 +1452,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         """
         return self.utxo_list.get_spend_list()
 
-    def broadcast_or_show(self, tx: Transaction, *, invoice: 'Invoice' = None, callback):
+    def broadcast_or_show(self, tx: Transaction, *, invoice: 'Invoice' = None):
         if not tx.is_complete():
             self.show_transaction(tx, invoice=invoice)
             return
@@ -1460,10 +1460,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             self.show_error(_("You can't broadcast a transaction without a live network connection."))
             self.show_transaction(tx, invoice=invoice)
             return
-        self.broadcast_transaction(tx, invoice=invoice, callback=callback)
+        self.broadcast_transaction(tx, invoice=invoice)
 
-    def broadcast_transaction(self, tx: Transaction, *, invoice: Invoice = None, callback):
-        self.send_tab.broadcast_transaction(tx, invoice=invoice, callback=callback)
+    def broadcast_transaction(self, tx: Transaction, *, invoice: Invoice = None):
+        self.send_tab.broadcast_transaction(tx, invoice=invoice)
 
     @protected
     def sign_tx(
