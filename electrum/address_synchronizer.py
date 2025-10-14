@@ -654,6 +654,7 @@ class AddressSynchronizer(Logger, EventListener):
         with self.lock:
             self.unverified_tx.pop(tx_hash, None)
             self.db.add_verified_tx(tx_hash, info)
+            self.invalidate_cache()
         util.trigger_callback('adb_added_verified_tx', self, tx_hash)
 
     @with_lock
@@ -683,6 +684,7 @@ class AddressSynchronizer(Logger, EventListener):
                         # a status update, that will overwrite it.
                         self.unverified_tx[tx_hash] = tx_height
                         txs.add(tx_hash)
+            self.invalidate_cache()
 
         for tx_hash in txs:
             util.trigger_callback('adb_removed_verified_tx', self, tx_hash)
