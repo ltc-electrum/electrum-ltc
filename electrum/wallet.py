@@ -657,6 +657,23 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             return
         self._update_invoices_and_reqs_touched_by_tx(tx_hash)
 
+    @event_listener
+    async def on_event_blockchain_tip_updated(self, height):
+        if self.txin_type != 'mweb': return
+        utxos = {x.mweb_output_id: x.prevout for x in self.get_utxos() if x.block_height}
+        while stub := mwebd.stub_async():
+            spent = await stub.Spent(SpentRequest(output_id=utxos.keys()))
+            status = await stub.Status(StatusRequest())
+            if status.mweb_utxos_height == height: break
+            if status.mweb_utxos_height > height: return
+            await asyncio.sleep(0.1)
+        if spent.output_id:
+            tx = Transaction(None)
+            tx._inputs = [TxInput(prevout=utxos[x], script_sig=b'') for x in spent.output_id]
+            tx._outputs = []
+            await self._add_transaction(tx, height)
+        self._update_onchain_invoice_paid_detection(self._invoices.keys())
+
     def clear_history(self):
         self.adb.clear_history()
         self.save_db()
@@ -1429,11 +1446,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             with self.adb.lock:
                 tx_info2 = self.adb.get_tx_height(tx_hash)
                 if tx_info2.conf: height = tx_info2.height
-                for txout in tx.outputs():
-                    if self.db.is_addr_in_history(txout.address):
-                        hist = dict(self.db.get_addr_history(txout.address))
-                        hist[tx_hash] = height
-                        self.db.set_addr_history(txout.address, list(hist.items()))
+                self._add_addr_history(tx, height)
                 if not tx_info2.conf:
                     self.adb.add_verified_tx(tx_hash, tx_info)
 
@@ -3697,7 +3710,17 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         util.trigger_callback('wallet_updated', self)
         self.adb.set_future_tx(tx.txid(), wanted_height=wanted_height)
 
+    def _add_addr_history(self, tx, height):
+        for txin in tx.inputs():
+            self.add_input_info(txin)
+        for x in (*tx.inputs(), *tx.outputs()):
+            if self.db.is_addr_in_history(x.address):
+                hist = dict(self.db.get_addr_history(x.address))
+                hist[tx.txid()] = height
+                self.db.set_addr_history(x.address, list(hist.items()))
+
     async def _add_transaction(self, tx, height):
+        self._add_addr_history(tx, height)
         self.adb.add_unverified_or_unconfirmed_tx(tx.txid(), height)
         self.adb.add_transaction(tx)
         self.adb.up_to_date_changed()
@@ -4264,28 +4287,6 @@ class Standard_Wallet(Simple_Wallet, Deterministic_Wallet):
             n += 1
         return resp.address[0]
 
-    def synchronize(self):
-        if self.txin_type == 'mweb' and self.network:
-            utxos = {}
-            for utxo in self.get_utxos():
-                if utxo.block_height:
-                    utxos[utxo.mweb_output_id] = utxo
-            stub = mwebd.stub()
-            resp = stub.Spent(SpentRequest(output_id=utxos.keys()))
-            height = stub.Status(StatusRequest()).mweb_utxos_height
-            if resp.output_id and height == self.network.get_server_height():
-                tx = Transaction(None)
-                tx._inputs = [TxInput(prevout=utxos[x].prevout, script_sig=b'')
-                              for x in resp.output_id]
-                tx._outputs = []
-                for address in [utxos[x].address for x in resp.output_id]:
-                    hist = dict(self.db.get_addr_history(address))
-                    hist[tx.txid()] = height
-                    self.db.set_addr_history(address, list(hist.items()))
-                asyncio.run_coroutine_threadsafe(self._add_transaction(tx, height),
-                                                 self.network.asyncio_loop)
-        return Deterministic_Wallet.synchronize(self)
-
     def start_network(self, network):
         Deterministic_Wallet.start_network(self, network)
         if self.txin_type == 'mweb':
@@ -4309,9 +4310,6 @@ class Standard_Wallet(Simple_Wallet, Deterministic_Wallet):
                 tx._inputs = []
                 tx._outputs = [TxOutput.from_address_and_value(utxo.address, utxo.value)]
                 tx._outputs[0].mweb_output_id = utxo.output_id
-            hist = dict(self.db.get_addr_history(utxo.address))
-            hist[tx.txid()] = utxo.height
-            self.db.set_addr_history(utxo.address, list(hist.items()))
             await self._add_transaction(tx, utxo.height)
 
     def has_support_for_slip_19_ownership_proofs(self) -> bool:

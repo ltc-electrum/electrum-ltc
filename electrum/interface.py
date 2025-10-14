@@ -1064,6 +1064,7 @@ class Interface(Logger):
                 self.logger.info(f"new chain tip. {height=}")
             if blockchain_updated:
                 util.trigger_callback('blockchain_updated')
+                util.trigger_callback('blockchain_tip_updated', height)
                 self._blockchain_updated.set()
                 self._blockchain_updated.clear()
             util.trigger_callback('network_updated')
