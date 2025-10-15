@@ -20,7 +20,7 @@ from electrum.logging import get_logger
 from electrum.mwebd_pb2 import LedgerApdu
 from electrum.plugin import Device, runs_in_hwd_thread
 from electrum.transaction import PartialTransaction, Transaction, PartialTxInput
-from electrum.util import bfh, UserFacingException, versiontuple
+from electrum.util import bfh, UserCancelled, UserFacingException, versiontuple
 from electrum.wallet import Standard_Wallet
 
 from electrum.hw_wallet import HardwareClientBase, HW_PluginBase
@@ -1270,7 +1270,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
                 if not data: break
                 data = client.apdu_exchange(data)
         except DenyError:
-            raise UserFacingException(_('Cancelled by user'))
+            raise UserCancelled()
         except BaseException as e:
             _logger.exception('Error while signing')
             raise UserFacingException(e)
