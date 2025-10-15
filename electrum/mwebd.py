@@ -83,6 +83,8 @@ def create(tx, keystore, fee_estimator, *, dry_run = True, password = None):
             op = f'{txin.mweb_output_id}:{txin.mweb_address_index}'
             txin = TxInput(prevout=TxOutpoint.from_str(op))
         txins.append(txin)
+    for txout in tx.outputs():
+        txout.mweb_output_id = ''
     tx._inputs, txins = txins, tx._inputs
     raw_tx = bytes.fromhex(tx.serialize_to_network(include_sigs=False))
     tx._inputs = txins
