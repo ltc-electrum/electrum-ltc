@@ -10,7 +10,7 @@ PROJECT_ROOT="$(dirname "$(readlink -e "$0")")/../.."
 PROJECT_ROOT_OR_FRESHCLONE_ROOT="$PROJECT_ROOT"
 CONTRIB="$PROJECT_ROOT/contrib"
 CONTRIB_WINE="$CONTRIB/build-wine"
-BUILD_UID=$(/usr/bin/stat -c %u "$PROJECT_ROOT")
+BUILD_UID=$($(command -v gstat || command -v stat) -c %u "$PROJECT_ROOT")
 
 . "$CONTRIB"/build_tools_util.sh
 

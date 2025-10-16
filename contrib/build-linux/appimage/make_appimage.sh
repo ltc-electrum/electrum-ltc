@@ -98,6 +98,14 @@ fi
 cp -f "$DLL_TARGET_DIR/libzbar.so.0" "$APPDIR/usr/lib/" || fail "Could not copy libzbar to its destination"
 
 
+if [ -f "$DLL_TARGET_DIR/libmwebd.so.0" ]; then
+    info "mwebd already built, skipping"
+else
+    "$CONTRIB"/make_mwebd.sh || fail "Could not build mwebd"
+fi
+cp -f "$DLL_TARGET_DIR/libmwebd.so.0" "$APPDIR/usr/lib/" || fail "Could not copy mwebd to its destination"
+
+
 appdir_python() {
     env \
         PYTHONNOUSERSITE=1 \
@@ -146,7 +154,7 @@ export ELECTRUM_ECC_DONT_COMPILE=1
 info "installing electrum and its dependencies."
 "$python" -m pip install --no-build-isolation --no-dependencies --no-binary :all: --no-warn-script-location \
     --cache-dir "$PIP_CACHE_DIR" -r "$CONTRIB/deterministic-build/requirements.txt"
-"$python" -m pip install --no-build-isolation --no-dependencies --no-binary :all: --only-binary PyQt6,PyQt6-Qt6,cryptography --no-warn-script-location \
+"$python" -m pip install --no-build-isolation --no-dependencies --no-binary :all: --only-binary PyQt6,PyQt6-Qt6,cryptography,grpcio --no-warn-script-location \
     --cache-dir "$PIP_CACHE_DIR" -r "$CONTRIB/deterministic-build/requirements-binaries.txt"
 "$python" -m pip install --no-build-isolation --no-dependencies --no-binary :all: --no-warn-script-location \
     --cache-dir "$PIP_CACHE_DIR" -r "$CONTRIB/deterministic-build/requirements-hw.txt"

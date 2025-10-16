@@ -8,7 +8,6 @@ from threading import RLock
 from .bip32 import BIP32_PRIME
 from .bitcoin import is_mweb_address
 from . import constants
-from .logging import get_logger
 from .transaction import PartialTransaction, Transaction, TxInput, TxOutpoint
 from .mwebd_pb2 import CoinswapRequest, CreateRequest
 from .mwebd_pb2_grpc import RpcStub
@@ -16,8 +15,6 @@ from .mwebd_pb2_grpc import RpcStub
 data_dir = None
 lock = RLock()
 port = 0
-
-_logger = get_logger(__name__)
 
 if sys.platform == 'darwin':
     name = 'libmwebd.0.dylib'
@@ -28,12 +25,11 @@ else:
 
 try:
     libmwebd = cdll.LoadLibrary(os.path.join(os.path.dirname(__file__), name))
-except BaseException as e1:
+except OSError:
     try:
         libmwebd = cdll.LoadLibrary(name)
-    except BaseException as e2:
+    except OSError:
         libmwebd = None
-        _logger.error(f"failed to load mwebd. exceptions: {[e1,e2]!r}")
 
 class strgo(Structure):
     _fields_ = [('p', c_char_p), ('n', c_int)]

@@ -104,6 +104,9 @@ cryptography==45.0.3 \
     --hash=sha256:f22af3c78abfbc7cbcdf2c55d23c3e022e1a462ee2481011d518c7fb9c9f3d65 \
     --hash=sha256:fae1e637f527750811588e4582988932c222f8251f7b7ea93739acb624e1487f \
     --hash=sha256:fed5aaca1750e46db870874c9c273cd5182a9e9deb16f06f7bdffdb5c2bde4b9
+grpcio==1.75.1 \
+    --hash=sha256:7d4fa6ccc3ec2e68a04f7b883d354d7fea22a34c44ce535a2f0c0049cf626ddf \
+    --hash=sha256:b1e191c5c465fa777d4cafbaacf0c01e0d5278022082c0abbd2ee1d6454ed94d
 pip==25.1.1 \
     --hash=sha256:2913a38a2abf4ea6b64ab507bd9e967f3b53dc1ede74b01b0931e1ce548751af \
     --hash=sha256:3de45d411d308d5054c2168185d8da7f9a2cd753dbac8acbfa88a8909ecd9077

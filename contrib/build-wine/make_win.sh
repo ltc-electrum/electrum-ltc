@@ -72,7 +72,7 @@ else
 
         # note: "-j1" as parallel jobs lead to non-reproducibility seemingly due to ordering issues
         #       see https://github.com/win-iconv/win-iconv/issues/42
-        CC="${GCC_TRIPLET_HOST}-gcc" make -j1 || fail "Could not build win-iconv"
+        CC="${GCC_TRIPLET_HOST}-gcc" AR="${GCC_TRIPLET_HOST}-ar" RANLIB="${GCC_TRIPLET_HOST}-ranlib" make -j1 || fail "Could not build win-iconv"
         # FIXME avoid using sudo
         sudo make install prefix="/usr/${GCC_TRIPLET_HOST}"  || fail "Could not install win-iconv"
     )
@@ -83,6 +83,12 @@ if [ -f "$DLL_TARGET_DIR/libusb-1.0.dll" ]; then
     info "libusb already built, skipping"
 else
     "$CONTRIB"/make_libusb.sh || fail "Could not build libusb"
+fi
+
+if [ -f "$DLL_TARGET_DIR/libmwebd-0.dll" ]; then
+    info "mwebd already built, skipping"
+else
+    "$CONTRIB"/make_mwebd.sh || fail "Could not build mwebd"
 fi
 
 "$here/prepare-wine.sh" || fail "prepare-wine failed"

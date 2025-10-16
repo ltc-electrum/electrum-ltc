@@ -104,6 +104,11 @@ for d in a.datas:
         a.datas.remove(d)
         break
 
+for d in a.datas:
+    if 'www/pay' in d[0]:
+        a.datas.remove(d)
+        break
+
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

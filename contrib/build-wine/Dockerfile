@@ -12,6 +12,7 @@ ENV LC_ALL=C.UTF-8 LANG=C.UTF-8
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN dpkg --add-architecture i386 && \
+    dpkg --add-architecture amd64 && \
     apt-get update -q && \
     apt-get install -qy --allow-downgrades \
         wget \
@@ -55,6 +56,9 @@ RUN DEBIAN_CODENAME=$(lsb_release --codename --short) && \
     rm -rf /var/lib/apt/lists/* && \
     apt-get autoremove -y && \
     apt-get clean
+
+RUN wget https://go.dev/dl/go1.25.1.linux-amd64.tar.gz
+RUN tar -C /usr/local -xzf go1.25.1.linux-amd64.tar.gz
 
 # create new user to avoid using root; but with sudo access and no password for convenience.
 ARG UID=1000

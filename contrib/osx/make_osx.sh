@@ -171,6 +171,14 @@ else
 fi
 cp -f "$DLL_TARGET_DIR/libusb-1.0.dylib" "$PROJECT_ROOT/electrum/" || fail "Could not copy libusb dylib"
 
+if [ ! -f "$DLL_TARGET_DIR/libmwebd.0.dylib" ]; then
+    info "Building mwebd dylib..."
+    GOARCH=amd64 "$CONTRIB"/make_mwebd.sh || fail "Could not build mwebd dylib"
+else
+    info "Skipping mwebd build: reusing already built dylib."
+fi
+cp -f "$DLL_TARGET_DIR/libmwebd.0.dylib" "$PROJECT_ROOT/electrum/" || fail "Could not copy mwebd dylib"
+
 
 # opt out of compiling C extensions
 export YARL_NO_EXTENSIONS=1
@@ -191,7 +199,7 @@ python3 -m pip install --no-build-isolation --no-dependencies --no-binary :all: 
     || fail "Could not install hardware wallet requirements"
 
 info "Installing dependencies specific to binaries..."
-python3 -m pip install --no-build-isolation --no-dependencies --no-binary :all: --only-binary PyQt6,PyQt6-Qt6,cryptography \
+python3 -m pip install --no-build-isolation --no-dependencies --no-binary :all: --only-binary PyQt6,PyQt6-Qt6,cryptography,grpcio \
     --cache-dir "$PIP_CACHE_DIR" --no-warn-script-location \
     -Ir ./contrib/deterministic-build/requirements-binaries-mac.txt \
     || fail "Could not install dependencies specific to binaries"
