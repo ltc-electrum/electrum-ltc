@@ -249,6 +249,7 @@ class Synchronizer(SynchronizerBase):
         self.adb.up_to_date_changed()
         # request missing txns, if any
         for addr in random_shuffled_copy(self.adb.db.get_history()):
+            if is_mweb_address(addr): continue
             history = self.adb.db.get_addr_history(addr)
             # Old electrum servers returned ['*'] when all history for the address
             # was pruned. This no longer happens but may remain in old wallets.
