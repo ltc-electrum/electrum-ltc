@@ -21,7 +21,7 @@ from electrum._vendor.distutils.version import StrictVersion
 
 class UpdateCheck(QDialog, Logger):
     url = "https://electrum-ltc.org/version"
-    download_url = "https://electrum-ltc.org/#download"
+    download_url = "https://ltc-electrum.github.io/#download"
 
     VERSION_ANNOUNCEMENT_SIGNING_KEYS = (
         "13xjmVAB1EATPP8RshTE8S8sNwwSUM9p1P",  # ThomasV (since 3.3.4)

@@ -56,7 +56,7 @@ extras_require['fast'] = extras_require['crypto']
 
 
 setup(
-    name="Electrum",
+    name="Electrum-LTC",
     version=version.ELECTRUM_VERSION,
     python_requires='>={}'.format(MIN_PYTHON_VERSION),
     install_requires=requirements,
@@ -71,12 +71,12 @@ setup(
     # package_data kwarg lists what gets put in site-packages when pip installing the tar.gz.
     # By specifying include_package_data=True, MANIFEST.in becomes responsible for both.
     include_package_data=True,
-    scripts=['electrum/electrum'],
+    scripts=['electrum/electrum-ltc'],
     data_files=data_files,
-    description="Lightweight Bitcoin Wallet",
+    description="Lightweight Litecoin Wallet",
     author="Thomas Voegtlin",
     author_email="thomasv@electrum.org",
     license="MIT Licence",
-    url="https://electrum-ltc.org",
-    long_description="""Lightweight Bitcoin Wallet""",
+    url="https://ltc-electrum.github.io",
+    long_description="""Lightweight Litecoin Wallet""",
 )

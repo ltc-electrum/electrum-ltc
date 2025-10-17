@@ -9,7 +9,7 @@
 #
 # - BUILDER builds all binaries and checks they match the official releases
 #   (using release.sh, and perhaps some manual steps)
-# - BUILDER creates a PR against https://github.com/litecoin-foundation/electrum-ltc-signatures/
+# - BUILDER creates a PR against https://github.com/ltc-electrum/electrum-ltc-signatures/
 #   to add their sigs for a given release, which then gets merged
 # - SFTPUSER runs `$ SSHUSER=$SFTPUSER electrum/contrib/add_cosigner $BUILDER`
 # - SFTPUSER runs `$ electrum/contrib/make_download $WWW_DIR`

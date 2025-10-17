@@ -10,7 +10,7 @@
 
 ### 1. Check out the code from GitHub:
 ```
-$ git clone https://github.com/litecoin-foundation/electrum-ltc.git
+$ git clone https://github.com/ltc-electrum/electrum-ltc.git
 $ cd electrum-ltc
 $ git submodule update --init
 ```

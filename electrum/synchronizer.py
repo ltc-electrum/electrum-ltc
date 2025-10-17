@@ -84,12 +84,12 @@ class SynchronizerBase(NetworkJobOnDefaultServer):
             self.session.unsubscribe(self.status_queue)
 
     def add(self, addr: str) -> None:
-        if not is_address(addr): raise ValueError(f"invalid bitcoin address {addr}")
+        if not is_address(addr): raise ValueError(f"invalid litecoin address {addr}")
         self._adding_addrs.add(addr)  # this lets is_up_to_date already know about addr
 
     async def _add_address(self, addr: str):
         try:
-            if not is_address(addr): raise ValueError(f"invalid bitcoin address {addr}")
+            if not is_address(addr): raise ValueError(f"invalid litecoin address {addr}")
             if is_mweb_address(addr): return
             if addr in self.requested_addrs: return
             self.requested_addrs.add(addr)

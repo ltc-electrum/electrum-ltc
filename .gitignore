@@ -5,7 +5,7 @@
 build/
 dist/
 *.egg/
-Electrum.egg-info/
+Electrum_LTC.egg-info/
 .devlocaltmp/
 *_trial_temp
 packages

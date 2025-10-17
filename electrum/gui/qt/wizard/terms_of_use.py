@@ -35,7 +35,7 @@ class WCTermsOfUseScreen(WizardComponent):
         WizardComponent.__init__(self, parent, wizard, title='')
         self.wizard_title = _('Electrum Terms of Use')
         self.img_label = QLabel()
-        pixmap = QPixmap(icon_path('electrum_darkblue_1.png'))
+        pixmap = QPixmap(icon_path('electrum.png'))
         self.img_label.setPixmap(pixmap)
         self.img_label2 = QLabel()
         pixmap = QPixmap(icon_path('electrum_text.png'))

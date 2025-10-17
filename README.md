@@ -1,23 +1,20 @@
-# Electrum - Lightweight Bitcoin client
+# Electrum-LTC - Lightweight Litecoin client
 
 ```
 Licence: MIT Licence
 Author: Thomas Voegtlin
+Port Maintainer: Hector Chu
 Language: Python (>= 3.10)
-Homepage: https://electrum-ltc.org/
+Homepage: https://ltc-electrum.github.io/
 ```
-
-[![Build Status](https://api.cirrus-ci.com/github/spesmilo/electrum.svg?branch=master)](https://cirrus-ci.com/github/spesmilo/electrum)
-[![Test coverage statistics](https://coveralls.io/repos/github/spesmilo/electrum/badge.svg?branch=master)](https://coveralls.io/github/spesmilo/electrum?branch=master)
-[![Help translate Electrum online](https://d322cqt584bo4o.cloudfront.net/electrum/localized.svg)](https://crowdin.com/project/electrum)
 
 
 ## Getting started
 
-_(If you've come here looking to simply run Electrum,
-[you may download it here](https://electrum-ltc.org/#download).)_
+_(If you've come here looking to simply run Electrum-LTC,
+[you may download it here](https://ltc-electrum.github.io/#download).)_
 
-Electrum itself is pure Python, and so are most of the required dependencies,
+Electrum-LTC itself is pure Python, and so are most of the required dependencies,
 but not everything. The following sections describe how to run from source, but here
 is a TL;DR:
 
@@ -41,7 +38,7 @@ For elliptic curve operations,
 [libsecp256k1](https://github.com/bitcoin-core/secp256k1)
 is a required dependency.
 
-If you "pip install" Electrum, by default libsecp will get compiled locally,
+If you "pip install" Electrum-LTC, by default libsecp will get compiled locally,
 as part of the `electrum-ecc` dependency. This can be opted-out of,
 by setting the `ELECTRUM_ECC_DONT_COMPILE=1` environment variable.
 For the compilation to work, besides a C compiler, you need at least:
@@ -71,21 +68,21 @@ If you would like hardware wallet support,
 ### Running from tar.gz
 
 If you downloaded the official package (tar.gz), you can run
-Electrum from its root directory without installing it on your
+Electrum-LTC from its root directory without installing it on your
 system; all the pure python dependencies are included in the 'packages'
-directory. To run Electrum from its root directory, just do:
+directory. To run Electrum-LTC from its root directory, just do:
 ```
 $ ./run_electrum
 ```
 
-You can also install Electrum on your system, by running this command:
+You can also install Electrum-LTC on your system, by running this command:
 ```
 $ sudo apt-get install python3-setuptools
 $ uv pip install .
 ```
 
 This will download and install the Python dependencies used by
-Electrum instead of using the 'packages' directory.
+Electrum-LTC instead of using the 'packages' directory.
 It will also place an executable named `electrum` in your PATH.
 
 
@@ -101,7 +98,7 @@ $ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 Check out the code from GitHub:
 ```
-$ git clone https://github.com/litecoin-foundation/electrum-ltc.git
+$ git clone https://github.com/ltc-electrum/electrum-ltc.git
 $ cd electrum-ltc
 $ git submodule update --init
 ```
@@ -117,7 +114,7 @@ $ sudo apt-get install gettext
 $ ./contrib/locale/build_locale.sh electrum/locale/locale electrum/locale/locale
 ```
 
-Finally, to start Electrum:
+Finally, to start Electrum-LTC:
 ```
 $ ./run_electrum
 ```
@@ -151,8 +148,8 @@ Implementing new features, or improving/refactoring the codebase, is of course
 also welcome, but to avoid wasted effort, especially for larger changes,
 we encourage discussing these on the issue tracker or IRC first.
 
-Besides [GitHub](https://github.com/litecoin-foundation/electrum-ltc),
-most communication about Electrum development happens on IRC, in the
+Besides [GitHub](https://github.com/ltc-electrum/electrum-ltc),
+most communication about Electrum-LTC development happens on IRC, in the
 `#electrum` channel on Libera Chat. The easiest way to participate on IRC is
 with the web client, [web.libera.chat](https://web.libera.chat/#electrum).
 

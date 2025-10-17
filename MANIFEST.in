@@ -3,7 +3,7 @@ include README.md
 include electrum-ltc.desktop
 include *.py
 include run_electrum
-include org.electrum.electrum.metainfo.xml
+include org.electrum-ltc.electrum-ltc.metainfo.xml
 recursive-include packages *.py
 recursive-include packages cacert.pem
 
