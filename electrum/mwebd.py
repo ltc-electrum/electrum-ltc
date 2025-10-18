@@ -1,5 +1,6 @@
 from copy import copy
 from ctypes import *
+from functools import lru_cache
 import grpc
 import os
 import sys
@@ -8,13 +9,16 @@ from threading import RLock
 from .bip32 import BIP32_PRIME
 from .bitcoin import is_mweb_address
 from . import constants
-from .transaction import PartialTransaction, Transaction, TxInput, TxOutpoint
+from .logging import get_logger
 from .mwebd_pb2 import CoinswapRequest, CreateRequest
 from .mwebd_pb2_grpc import RpcStub
+from .transaction import PartialTransaction, Transaction, TxInput, TxOutpoint
+from .util import make_dir
 
-data_dir = None
 lock = RLock()
 port = 0
+
+_logger = get_logger(__name__)
 
 if sys.platform == 'darwin':
     name = 'libmwebd.0.dylib'
@@ -23,13 +27,16 @@ elif sys.platform in ('windows', 'win32'):
 else:
     name = 'libmwebd.so.0'
 
-try:
-    libmwebd = cdll.LoadLibrary(os.path.join(os.path.dirname(__file__), name))
-except OSError:
-    try:
-        libmwebd = cdll.LoadLibrary(name)
-    except OSError:
-        libmwebd = None
+@lru_cache()
+def libmwebd():
+    ex = []
+    for path in [os.path.join(os.path.dirname(__file__), name), name]:
+        try:
+            return cdll.LoadLibrary(path)
+        except Exception as e:
+            ex.append(e)
+    _logger.error(f"failed to load mwebd. exceptions: {ex!r}")
+    os._exit(1)
 
 class strgo(Structure):
     _fields_ = [('p', c_char_p), ('n', c_int)]
@@ -40,32 +47,27 @@ class strgo(Structure):
 
 def scrypt(x):
     buf = bytearray(32)
-    libmwebd.Scrypt(strgo(x), (c_char * len(buf)).from_buffer(buf))
+    libmwebd().Scrypt(strgo(x), (c_char * len(buf)).from_buffer(buf))
     return buf
 
 def set_data_dir(dir):
     global data_dir
-    with lock:
-        data_dir = os.path.join(dir, 'mweb')
-        os.makedirs(data_dir, exist_ok=True)
+    data_dir = os.path.join(dir, 'mweb')
+    make_dir(data_dir, allow_symlink=False)
 
-def start_if_needed():
+@lru_cache()
+def stubs():
     global port
     with lock:
-        if port: return
-        port = libmwebd.Start(strgo(constants.net.NET_NAME), strgo(data_dir))
-
-def stub():
-    start_if_needed()
+        if not port:
+            port = libmwebd().Start(strgo(constants.net.NET_NAME), strgo(data_dir))
     target = f'unix://{data_dir}/mwebd.sock'
     if port > 1: target = f'127.0.0.1:{port}'
-    return RpcStub(grpc.insecure_channel(target))
+    return (RpcStub(grpc.insecure_channel(target)),
+            RpcStub(grpc.aio.insecure_channel(target)))
 
-def stub_async():
-    start_if_needed()
-    target = f'unix://{data_dir}/mwebd.sock'
-    if port > 1: target = f'127.0.0.1:{port}'
-    return RpcStub(grpc.aio.insecure_channel(target))
+def stub(): return stubs()[0]
+def stub_async(): return stubs()[1]
 
 def create(tx, keystore, fee_estimator, *, dry_run = True, password = None):
     scan_secret = spend_secret = bytes(32)
