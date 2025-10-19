@@ -309,7 +309,7 @@ class Commands(Logger):
         If you want to be prompted for an argument, type '?' or ':' (concealed)
 
         arg:str:passphrase:Seed extension
-        arg:str:seed_type:The type of wallet to create, e.g. 'standard' or 'segwit'
+        arg:str:seed_type:The type of wallet to create, e.g. 'standard', 'segwit' or 'mweb'
         arg:bool:encrypt_file:Whether the file on disk should be encrypted with the provided password
         """
         d = create_new_wallet(
