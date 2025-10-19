@@ -344,7 +344,7 @@ class KeystoreWizard(AbstractWizard):
         # check if seed matches wallet type
         if wallet_type == '2fa' and not is_any_2fa_seed_type(seed_type):
             seed_valid = False
-        elif wallet_type == 'standard' and seed_type not in ['old', 'standard', 'segwit', 'bip39', 'slip39']:
+        elif wallet_type == 'standard' and seed_type not in ['old', 'standard', 'segwit', 'mweb', 'bip39', 'slip39']:
             seed_valid = False
         elif wallet_type == 'multisig' and seed_type not in ['standard', 'segwit', 'bip39', 'slip39']:
             seed_valid = False
