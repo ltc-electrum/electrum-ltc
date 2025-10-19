@@ -24,7 +24,6 @@ block_cipher = None
 
 # see https://github.com/pyinstaller/pyinstaller/issues/2005
 hiddenimports = []
-hiddenimports += collect_submodules('pkg_resources')  # workaround for https://github.com/pypa/setuptools/issues/1963
 hiddenimports += collect_submodules(f"{PYPKG}.plugins")
 
 
@@ -76,6 +75,7 @@ excludes = [
     "PyQt6.QtWebSockets",
     "PyQt6.QtXml",
     # "PyQt6.QtNetwork",  # needed by QtMultimedia. kinda weird but ok.
+    "pkg_resources",
 ]
 
 # We don't put these files in to actually include them in the script but to make the Analysis method scan them for imports
