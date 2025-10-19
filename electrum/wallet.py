@@ -3733,8 +3733,8 @@ class Abstract_Wallet(ABC, Logger, EventListener):
     async def broadcast_transaction(self, tx):
         async with self._async_lock:
             await self.network.broadcast_transaction(tx)
-            if tx._original_tx:
-                tx2 = tx_from_any(Transaction.serialize(tx._original_tx))
+            if otx := getattr(tx, '_original_tx', None):
+                tx2 = tx_from_any(Transaction.serialize(otx))
                 tx2._cached_txid = tx.txid()
                 await self._add_transaction(tx2, 0)
 
