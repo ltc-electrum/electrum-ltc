@@ -604,6 +604,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             return
         async with self._async_lock:
             num_new_addrs = await run_in_thread(self.synchronize)
+            if random.random() < 0.01: await asyncio.sleep(0.1)
         up_to_date = self.adb.is_up_to_date() and num_new_addrs == 0
         with self.lock:
             status_changed = self._up_to_date != up_to_date
