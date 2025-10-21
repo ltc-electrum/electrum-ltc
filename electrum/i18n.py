@@ -97,7 +97,8 @@ def _ensure_translation_keeps_format_string_syntax_similar(translator):
 #          _("time left: {mins} minutes, {secs} seconds").format(mins=t//60, secs=t%60)   # <- works, but too complex
 @_ensure_translation_keeps_format_string_syntax_similar
 def _(msg: str, *, context=None) -> str:
-    dic = [('BTC', 'LTC'), ('Bitcoin', 'Litecoin'), ('bitcoin', 'litecoin'), ('比特币', '莱特币')]
+    dic = [('BTC', 'LTC'), ('Bitcoin', 'Litecoin'), ('bitcoin', 'litecoin'),
+           ('比特币', '莱特币'), ('Electrum', 'Electrum-LTC')]
     if msg == "":
         return ""  # empty string must not be translated. see #7158
     # litecoin: replace bitcoin strings w/ litecoin strings
