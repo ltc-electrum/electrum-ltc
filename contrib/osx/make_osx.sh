@@ -64,10 +64,6 @@ source "$VENV_DIR/bin/activate"
 #       see additional "strip" pass on built files later in the file.
 export CFLAGS="-g0"
 
-# Do not build universal binaries. The default on macos 11+ and xcode 12+ is "-arch arm64 -arch x86_64"
-# but with that e.g. "hid.cpython-310-darwin.so" is not reproducible as built by clang.
-export ARCHFLAGS="-arch x86_64"
-
 info "Installing build dependencies"
 # note: re pip installing from PyPI,
 #       we prefer compiling C extensions ourselves, instead of using binary wheels,
@@ -173,7 +169,7 @@ cp -f "$DLL_TARGET_DIR/libusb-1.0.dylib" "$PROJECT_ROOT/electrum/" || fail "Coul
 
 if [ ! -f "$DLL_TARGET_DIR/libmwebd.0.dylib" ]; then
     info "Building mwebd dylib..."
-    GOARCH=amd64 "$CONTRIB"/make_mwebd.sh || fail "Could not build mwebd dylib"
+    GOARCH=$([[ "$(uname -m)" == "x86_64" ]] && echo amd64 || echo arm64) "$CONTRIB"/make_mwebd.sh || fail "Could not build mwebd dylib"
 else
     info "Skipping mwebd build: reusing already built dylib."
 fi
