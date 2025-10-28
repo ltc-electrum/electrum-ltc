@@ -38,8 +38,11 @@ class Handler(QtHandlerBase):
 
     def sign_transaction(self, keystore: Cupcake_KeyStore, tx: PartialTransaction):
         mwins, ins = partition(lambda x: x.mweb_output_id, tx.inputs())
-        chng, outs = partition(lambda x: not is_mweb_address(x.address) and x.is_change, tx.outputs())
-        tx2 = PartialTransaction.from_io(ins, chng, locktime=tx.locktime)
+        mwouts, outs = partition(lambda x: is_mweb_address(x.address), tx.outputs())
+        if mwins or mwouts:
+            outs, pegouts = partition(lambda x: x.is_change, outs)
+            mwouts.extend(pegouts)
+        tx2 = PartialTransaction.from_io(ins, outs, locktime=tx.locktime)
         raw_tx = bytes.fromhex(tx2.serialize_to_network(include_sigs=False)) if ins else None
         utxos = [TxOut(value=x.value_sats(), pk_script=x.scriptpubkey) for x in ins]
         resp = stub().PsbtCreate(PsbtCreateRequest(raw_tx=raw_tx, witness_utxo=utxos))
@@ -49,7 +52,7 @@ class Handler(QtHandlerBase):
                 scan_secret=bytes.fromhex(keystore.scan_secret),
                 output_id=txin.mweb_output_id,
                 address_index=txin.mweb_address_index))
-        for txout in outs:
+        for txout in mwouts:
             resp = stub().PsbtAddRecipient(PsbtAddRecipientRequest(
                 psbt_b64=resp.psbt_b64,
                 recipient=PsbtRecipient(address=txout.address, value=txout.value),

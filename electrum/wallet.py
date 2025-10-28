@@ -2882,6 +2882,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         # sign mweb
         if tx._original_tx:
             tmp_tx = copy.copy(tx._original_tx)
+            tmp_tx.locktime = tx.locktime
             change = []
             if self.keystore.type != 'cupcake':
                 change, tmp_tx._outputs = partition(lambda x:
@@ -3739,7 +3740,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         async with self._async_lock:
             await self.network.broadcast_transaction(tx)
             if otx := getattr(tx, '_original_tx', None):
-                tx2 = tx_from_any(Transaction.serialize(otx))
+                tx2 = tx_from_any(otx.serialize_to_network(include_sigs=False))
                 tx2._cached_txid = tx.txid()
                 await self._add_transaction(tx2, 0)
 

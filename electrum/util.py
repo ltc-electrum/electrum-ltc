@@ -2400,7 +2400,7 @@ class DeepCopyableFunc:
         return self
 
 
-def partition(f, xs):
+def partition(f: Callable[[T], bool], xs: Iterable[T]) -> Tuple[List[T], List[T]]:
     l, r = [], []
     for x in xs: (l if f(x) else r).append(x)
     return l, r
