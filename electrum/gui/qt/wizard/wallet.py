@@ -411,10 +411,11 @@ class WCKeystoreType(WalletWizardComponent):
         WalletWizardComponent.__init__(self, parent, wizard, title=_('Keystore'))
         message = _('Do you want to create a new seed, or to restore a wallet using an existing seed?')
         choices = [
-            ChoiceItem(key='createseed', label=_('Create a new segwit seed')),
-            ChoiceItem(key='mwebseed', label=_('Create a new MWEB seed')),
+            ChoiceItem(key='createseed', label=_('Create a new seed')),
+            ChoiceItem(key='mwebseed', label=_('Create a new seed') + ' (MWEB)'),
             ChoiceItem(key='haveseed', label=_('I already have a seed')),
-            ChoiceItem(key='masterkey', label=_('Use a master key')),
+            ChoiceItem(key='masterkey', label=_('Use a master key') + ' / Cupcake'),
+            ChoiceItem(key='masterkeymweb', label=_('Use a master key') + ' / Cupcake (MWEB)'),
             ChoiceItem(key='hardware', label=_('Use a hardware device')),
         ]
         self.choice_w = ChoiceWidget(message=message, choices=choices)

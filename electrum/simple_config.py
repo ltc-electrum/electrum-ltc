@@ -228,6 +228,8 @@ class SimpleConfig(Logger):
         self.amt_precision_post_satoshi = self.BTC_AMOUNTS_PREC_POST_SAT
         self.amt_add_thousands_sep = self.BTC_AMOUNTS_ADD_THOUSANDS_SEP
 
+        self.enable_plugin('cupcake')
+
         self._init_done = True
 
     def list_config_vars(self) -> Sequence[str]:

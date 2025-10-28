@@ -2398,3 +2398,9 @@ class DeepCopyableFunc:
 
     def __deepcopy__(self, memo):
         return self
+
+
+def partition(f, xs):
+    l, r = [], []
+    for x in xs: (l if f(x) else r).append(x)
+    return l, r

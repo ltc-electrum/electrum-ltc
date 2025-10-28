@@ -38,6 +38,7 @@ from electrum_ecc import string_to_number
 from . import bitcoin, constants, bip32
 from .bitcoin import deserialize_privkey, serialize_privkey, BaseDecodeError
 from .transaction import Transaction, PartialTransaction, PartialTxInput, PartialTxOutput, TxInput
+from .bip21 import parse_bip21_URI
 from .bip32 import (convert_bip32_strpath_to_intpath, BIP32_PRIME,
                     is_xpub, is_xprv, BIP32Node, normalize_bip32_derivation,
                     convert_bip32_intpath_to_strpath, is_xkey_consistent_with_key_origin_info,
@@ -628,6 +629,10 @@ class Xpub(MasterPublicKeyMixin):
         node = BIP32Node.from_xkey(xpub).subkey_at_public_derivation(sequence)
         return node.eckey.get_public_key_bytes(compressed=True)
 
+    def set_xpub_xtype(self, xtype: str):
+        self.xpub = self.get_bip32_node_for_xpub()._replace(xtype=xtype).to_xpub()
+        self._xpub_bip32_node = None
+
 
 class BIP32_KeyStore(Xpub, Deterministic_KeyStore):
 
@@ -1005,6 +1010,20 @@ class Hardware_KeyStore(Xpub, KeyStore):
         return f"{self.plugin.name}/{self.soft_device_id}"
 
 
+class Cupcake_KeyStore(BIP32_KeyStore):
+
+    type = 'cupcake'
+
+    def is_watching_only(self):
+        return False
+
+    def may_have_password(self):
+        return False
+
+    def sign_transaction(self, tx, password):
+        self.handler.sign_transaction(self, tx)
+
+
 KeyStoreWithMPK = Union[KeyStore, MasterPublicKeyMixin]  # intersection really...
 AddressIndexGeneric = Union[Sequence[int], str]  # can be hex pubkey str
 
@@ -1122,7 +1141,7 @@ def load_keystore(db: 'WalletDB', name: str) -> KeyStore:
         raise WalletFileException(
             'Wallet format requires update.\n'
             'Cannot find keystore for name {}'.format(name))
-    keystore_constructors = {ks.type: ks for ks in [Old_KeyStore, Imported_KeyStore, BIP32_KeyStore]}
+    keystore_constructors = {ks.type: ks for ks in [Old_KeyStore, Imported_KeyStore, BIP32_KeyStore, Cupcake_KeyStore]}
     keystore_constructors['hardware'] = hardware_keystore
     try:
         ks_constructor = keystore_constructors[t]
@@ -1170,11 +1189,21 @@ def is_private_key_list(text: str, *, allow_spaces_inside_key: bool = True, rais
 
 
 def is_master_key(x: str) -> bool:
-    return is_old_mpk(x) or is_bip32_key(x)
+    return is_old_mpk(x) or is_bip32_key(x) or is_cupcake(x)
 
 
 def is_bip32_key(x: str) -> bool:
     return is_xprv(x) or is_xpub(x)
+
+
+def is_cupcake(x: str) -> bool:
+    try:
+        d = parse_bip21_URI(x)
+        ecc.ECPrivkey(bfh(d['scan_secret']))
+        ecc.ECPubkey(bfh(d['spend_pubkey']))
+        return is_xpub(d['xpub'])
+    except:
+        return False
 
 
 def bip44_derivation(account_id: int, bip43_purpose: int = 44) -> str:
@@ -1243,6 +1272,14 @@ def from_xprv(xprv: str) -> BIP32_KeyStore:
     k.add_xprv(xprv)
     return k
 
+def from_cupcake(uri: str) -> BIP32_KeyStore:
+    d = parse_bip21_URI(uri)
+    k = Cupcake_KeyStore({})
+    k.add_xpub(d['xpub'])
+    k.scan_secret = d['scan_secret']
+    k.spend_pubkey = d['spend_pubkey']
+    return k
+
 def from_master_key(text: str) -> Union[BIP32_KeyStore, Old_KeyStore]:
     if is_xprv(text):
         k = from_xprv(text)
@@ -1250,6 +1287,8 @@ def from_master_key(text: str) -> Union[BIP32_KeyStore, Old_KeyStore]:
         k = from_old_mpk(text)
     elif is_xpub(text):
         k = from_xpub(text)
+    elif is_cupcake(text):
+        k = from_cupcake(text)
     else:
         raise BitcoinException('Invalid master key')
     return k

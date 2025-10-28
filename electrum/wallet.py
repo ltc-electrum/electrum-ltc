@@ -54,7 +54,7 @@ from .util import (
     WalletFileException, BitcoinException, InvalidPassword, format_time, timestamp_to_datetime,
     Satoshis, Fiat, TxMinedInfo, quantize_feerate, OrderedDictWithIndex, multisig_type, parse_max_spend,
     OnchainHistoryItem, read_json_file, write_json_file, UserFacingException, FileImportFailed, EventListener,
-    DeepCopyableFunc,
+    DeepCopyableFunc, partition,
     event_listener
 )
 from .bitcoin import COIN, is_address, is_mweb_address, is_minikey, relayfee, dust_threshold, DummyAddress, DummyAddressUsedInTxException
@@ -2882,14 +2882,14 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         # sign mweb
         if tx._original_tx:
             tmp_tx = copy.copy(tx._original_tx)
-            tmp_tx._outputs, change = [], []
-            for txout in tx._original_tx.outputs():
-                is_change = any(txout is o for o in tx.outputs())
-                (change if is_change else tmp_tx._outputs).append(txout)
+            change = []
+            if self.keystore.type != 'cupcake':
+                change, tmp_tx._outputs = partition(lambda x:
+                        any(x is y for y in tx.outputs()), tmp_tx.outputs())
             tmp_tx, _ = mwebd.create(tmp_tx, self.keystore, tx._fee_estimator,
                                      dry_run=False, password=password)
-            tx._outputs = tmp_tx._outputs
-            tx._extra_bytes = tmp_tx._extra_bytes
+            for x in ('_inputs', '_outputs', '_extra_bytes'):
+                setattr(tx, x, getattr(tmp_tx, x))
             tx.add_outputs(change)
 
         # sign with make_witness

@@ -1,0 +1,7 @@
+{
+  "name": "cupcake",
+  "fullname": "Cupcake",
+  "description": "Provides support for the Cupcake cold wallet from Cake Wallet",
+  "icon": "cupcake.png",
+  "available_for": ["qt"]
+}

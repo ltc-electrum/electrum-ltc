@@ -152,6 +152,8 @@ class BIP32Node(NamedTuple):
         else:
             raise InvalidMasterKeyVersionBytes(f'Invalid extended key format: {hex(header)}')
         xtype = headers_inv[header]
+        if xtype == 'p2wpkh2':
+            xtype = 'p2wpkh'
         if not allow_custom_headers and xtype != "standard":
             raise ValueError(f"only standard xpub/xprv allowed. found custom xtype={xtype}")
         if is_private:

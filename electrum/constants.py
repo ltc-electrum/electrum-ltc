@@ -166,6 +166,7 @@ class BitcoinMainnet(AbstractNet):
         'p2wsh-p2sh':  0x0295b43f,  # Ypub
         'p2wpkh':      0x04b24746,  # zpub
         'p2wsh':       0x02aa7ed3,  # Zpub
+        'p2wpkh2':     0x019da462,  # Ltub
         'mweb':        0x03a3fdc2,  # mpub
     }
     XPUB_HEADERS_INV = inv_dict(XPUB_HEADERS)

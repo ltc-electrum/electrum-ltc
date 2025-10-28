@@ -377,8 +377,11 @@ class KeystoreWizard(AbstractWizard):
                 return keystore.from_bip43_rootseed(root_seed, derivation=derivation, xtype=script)
             else:
                 raise Exception('Unsupported seed variant %s' % data['seed_variant'])
-        elif data['keystore_type'] == 'masterkey' and 'master_key' in data:
-            return keystore.from_master_key(data['master_key'])
+        elif data['keystore_type'] in ['masterkey', 'masterkeymweb'] and 'master_key' in data:
+            k = keystore.from_master_key(data['master_key'])
+            if data['keystore_type'] == 'masterkeymweb':
+                k.set_xpub_xtype('mweb')
+            return k
         elif data['keystore_type'] == 'hardware':
             return self.hw_keystore(data)
         else:
@@ -529,6 +532,7 @@ class NewWalletWizard(KeystoreWizard):
             'mwebseed': 'create_seed',
             'haveseed': 'have_seed',
             'masterkey': 'have_master_key',
+            'masterkeymweb': 'have_master_key',
             'hardware': 'choose_hardware_device'
         }.get(t)
 
@@ -733,15 +737,17 @@ class NewWalletWizard(KeystoreWizard):
                 k = keystore.from_xprv(data['x1']['xprv'])
             else:
                 raise Exception('unsupported/unknown seed_type %s' % data['seed_type'])
-        elif data['keystore_type'] == 'masterkey':
+        elif data['keystore_type'] in ['masterkey', 'masterkeymweb']:
             k = keystore.from_master_key(data['master_key'])
+            if data['keystore_type'] == 'masterkeymweb':
+                k.set_xpub_xtype('mweb')
             if isinstance(k, keystore.Xpub):  # has xpub
                 t1 = xpub_type(k.xpub)
                 if data['wallet_type'] == 'multisig':
                     if t1 not in ['standard', 'p2wsh', 'p2wsh-p2sh']:
                         raise Exception('wrong key type %s' % t1)
                 else:
-                    if t1 not in ['standard', 'p2wpkh', 'p2wpkh-p2sh']:
+                    if t1 not in ['standard', 'p2wpkh', 'p2wpkh-p2sh', 'mweb']:
                         raise Exception('wrong key type %s' % t1)
             elif isinstance(k, keystore.Old_KeyStore):
                 pass

@@ -30,7 +30,7 @@ from decimal import Decimal
 from .bitcoin import sha256, COIN, is_address, is_mweb_address
 from .keystore import KeyStore
 from .transaction import Transaction, PartialTransaction, PartialTxInput, PartialTxOutput
-from .util import NotEnoughFunds
+from .util import NotEnoughFunds, partition
 from .logging import Logger
 from . import mwebd
 
@@ -355,14 +355,14 @@ class CoinChooserBase(Logger):
 
         def tx_from_buckets(buckets):
             tx, change = _tx_from_buckets(buckets)
-            canonical_change = [x for x in change if not is_mweb_address(x.address)]
-            tx._outputs = [x for x in tx.outputs() if not any(x is y for y in canonical_change)]
+            base_change, tx._outputs = partition(lambda x: any(x is y for y in change)
+                                       and not is_mweb_address(x.address), tx.outputs())
             _, fee_increase = mwebd.create(tx, keystore, fee_estimator_vb)
             sum_change = sum([x.value for x in change])
             for x in change: x.value -= ceil(x.value / sum_change * fee_increase)
             tx._outputs = [x for x in tx.outputs() if x.value > 0]
             tx2, _ = mwebd.create(tx, keystore, fee_estimator_vb)
-            change_added_back = [x for x in canonical_change if x.value >= dust_threshold]
+            change_added_back = [x for x in base_change if x.value >= dust_threshold]
             tx.add_outputs(change_added_back)
             if tx2 is not tx: tx2.add_outputs(change_added_back)
             return tx2, [x for x in change if any(x is y for y in tx.outputs())]
