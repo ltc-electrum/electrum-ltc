@@ -4,7 +4,7 @@ import qrcode
 import qrcode.exceptions
 
 import PyQt6.QtGui as QtGui
-from PyQt6.QtCore import QRect, QTimer
+from PyQt6.QtCore import Qt, QRect, QTimer
 from PyQt6.QtWidgets import QApplication, QVBoxLayout, QHBoxLayout, QPushButton, QWidget
 
 from electrum.i18n import _
@@ -95,6 +95,7 @@ class QRDialog(WindowModalDialog):
             config: SimpleConfig,
     ):
         WindowModalDialog.__init__(self, parent, title)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.config = config
 
         vbox = QVBoxLayout()
