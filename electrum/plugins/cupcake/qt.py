@@ -76,7 +76,7 @@ class Handler(QtHandlerBase):
             if is_mweb_address(txout.address):
                 txout.mweb_output_id = resp.output_id.pop(0)
         tx2 = PartialTransaction.from_tx(Transaction(resp.raw_tx), strip_witness=False)
-        for x in ('_inputs', '_outputs', '_extra_bytes'):
+        for x in ('_inputs', '_outputs', '_flag', '_extra_bytes'):
             setattr(tx, x, getattr(tx2, x))
 
     def show_ur(self, data):

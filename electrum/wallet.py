@@ -2889,9 +2889,9 @@ class Abstract_Wallet(ABC, Logger, EventListener):
                         any(x is y for y in tx.outputs()), tmp_tx.outputs())
             tmp_tx, _ = mwebd.create(tmp_tx, self.keystore, tx._fee_estimator,
                                      dry_run=False, password=password)
-            for x in ('_inputs', '_outputs', '_extra_bytes'):
+            for x in ('_inputs', '_outputs', '_flag', '_extra_bytes'):
                 setattr(tx, x, getattr(tmp_tx, x))
-            tx.add_outputs(change)
+            if change: tx.add_outputs(change)
 
         # sign with make_witness
         for i, txin in enumerate(tx.inputs()):
