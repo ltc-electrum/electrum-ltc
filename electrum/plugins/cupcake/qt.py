@@ -51,7 +51,8 @@ class Handler(QtHandlerBase):
                 psbt_b64=resp.psbt_b64,
                 scan_secret=bytes.fromhex(keystore.scan_secret),
                 output_id=txin.mweb_output_id,
-                address_index=txin.mweb_address_index))
+                address_index=txin.mweb_address_index,
+                fee_rate_per_kb=tx._fee_estimator(1000)))
         for txout in mwouts:
             resp = stub().PsbtAddRecipient(PsbtAddRecipientRequest(
                 psbt_b64=resp.psbt_b64,

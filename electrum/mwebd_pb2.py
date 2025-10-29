@@ -14,7 +14,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0bmwebd.proto\"\x0f\n\rStatusRequest\"x\n\x0eStatusResponse\x12\x1b\n\x13\x62lock_header_height\x18\x01 \x01(\x05\x12\x1a\n\x12mweb_header_height\x18\x02 \x01(\x05\x12\x19\n\x11mweb_utxos_height\x18\x03 \x01(\x05\x12\x12\n\nblock_time\x18\x04 \x01(\r\"8\n\x0cUtxosRequest\x12\x13\n\x0b\x66rom_height\x18\x01 \x01(\x05\x12\x13\n\x0bscan_secret\x18\x02 \x01(\x0c\"]\n\x04Utxo\x12\x0e\n\x06height\x18\x01 \x01(\x05\x12\r\n\x05value\x18\x02 \x01(\x04\x12\x0f\n\x07\x61\x64\x64ress\x18\x03 \x01(\t\x12\x11\n\toutput_id\x18\x04 \x01(\t\x12\x12\n\nblock_time\x18\x05 \x01(\r\"a\n\x0e\x41\x64\x64ressRequest\x12\x12\n\nfrom_index\x18\x01 \x01(\r\x12\x10\n\x08to_index\x18\x02 \x01(\r\x12\x13\n\x0bscan_secret\x18\x03 \x01(\x0c\x12\x14\n\x0cspend_pubkey\x18\x04 \x01(\x0c\"\"\n\x0f\x41\x64\x64ressResponse\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x03(\t\"\x1a\n\nLedgerApdu\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"!\n\x0cSpentRequest\x12\x11\n\toutput_id\x18\x01 \x03(\t\"\"\n\rSpentResponse\x12\x11\n\toutput_id\x18\x01 \x03(\t\"t\n\rCreateRequest\x12\x0e\n\x06raw_tx\x18\x01 \x01(\x0c\x12\x13\n\x0bscan_secret\x18\x02 \x01(\x0c\x12\x14\n\x0cspend_secret\x18\x03 \x01(\x0c\x12\x17\n\x0f\x66\x65\x65_rate_per_kb\x18\x04 \x01(\x04\x12\x0f\n\x07\x64ry_run\x18\x05 \x01(\x08\"3\n\x0e\x43reateResponse\x12\x0e\n\x06raw_tx\x18\x01 \x01(\x0c\x12\x11\n\toutput_id\x18\x02 \x03(\t\"A\n\x11PsbtCreateRequest\x12\x0e\n\x06raw_tx\x18\x01 \x01(\x0c\x12\x1c\n\x0cwitness_utxo\x18\x02 \x03(\x0b\x32\x06.TxOut\")\n\x05TxOut\x12\r\n\x05value\x18\x01 \x01(\x03\x12\x11\n\tpk_script\x18\x02 \x01(\x0c\" \n\x0cPsbtResponse\x12\x10\n\x08psbt_b64\x18\x01 \x01(\t\"f\n\x13PsbtAddInputRequest\x12\x10\n\x08psbt_b64\x18\x01 \x01(\t\x12\x13\n\x0bscan_secret\x18\x02 \x01(\x0c\x12\x11\n\toutput_id\x18\x03 \x01(\t\x12\x15\n\raddress_index\x18\x04 \x01(\r\"g\n\x17PsbtAddRecipientRequest\x12\x10\n\x08psbt_b64\x18\x01 \x01(\t\x12!\n\trecipient\x18\x02 \x01(\x0b\x32\x0e.PsbtRecipient\x12\x17\n\x0f\x66\x65\x65_rate_per_kb\x18\x03 \x01(\x04\",\n\x18PsbtGetRecipientsRequest\x12\x10\n\x08psbt_b64\x18\x01 \x01(\t\"b\n\x19PsbtGetRecipientsResponse\x12!\n\trecipient\x18\x01 \x03(\x0b\x32\x0e.PsbtRecipient\x12\x15\n\rinput_address\x18\x02 \x03(\t\x12\x0b\n\x03\x66\x65\x65\x18\x03 \x01(\x03\"/\n\rPsbtRecipient\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x03\"N\n\x0fPsbtSignRequest\x12\x10\n\x08psbt_b64\x18\x01 \x01(\t\x12\x13\n\x0bscan_secret\x18\x02 \x01(\x0c\x12\x14\n\x0cspend_secret\x18\x03 \x01(\x0c\"K\n\x16PsbtSignNonMwebRequest\x12\x10\n\x08psbt_b64\x18\x01 \x01(\t\x12\x10\n\x08priv_key\x18\x02 \x01(\x0c\x12\r\n\x05index\x18\x03 \x01(\r\"8\n\x12PsbtExtractRequest\x12\x10\n\x08psbt_b64\x18\x01 \x01(\t\x12\x10\n\x08unsigned\x18\x02 \x01(\x08\"\"\n\x10\x42roadcastRequest\x12\x0e\n\x06raw_tx\x18\x01 \x01(\x0c\"!\n\x11\x42roadcastResponse\x12\x0c\n\x04txid\x18\x01 \x01(\t\"c\n\x0f\x43oinswapRequest\x12\x13\n\x0bscan_secret\x18\x01 \x01(\x0c\x12\x14\n\x0cspend_secret\x18\x02 \x01(\x0c\x12\x11\n\toutput_id\x18\x03 \x01(\t\x12\x12\n\naddr_index\x18\x04 \x01(\r\"%\n\x10\x43oinswapResponse\x12\x11\n\toutput_id\x18\x01 \x01(\t2\xf1\x05\n\x03Rpc\x12)\n\x06Status\x12\x0e.StatusRequest\x1a\x0f.StatusResponse\x12\x1f\n\x05Utxos\x12\r.UtxosRequest\x1a\x05.Utxo0\x01\x12.\n\tAddresses\x12\x0f.AddressRequest\x1a\x10.AddressResponse\x12&\n\x05Spent\x12\r.SpentRequest\x1a\x0e.SpentResponse\x12)\n\x06\x43reate\x12\x0e.CreateRequest\x1a\x0f.CreateResponse\x12/\n\nPsbtCreate\x12\x12.PsbtCreateRequest\x1a\r.PsbtResponse\x12\x33\n\x0cPsbtAddInput\x12\x14.PsbtAddInputRequest\x1a\r.PsbtResponse\x12;\n\x10PsbtAddRecipient\x12\x18.PsbtAddRecipientRequest\x1a\r.PsbtResponse\x12J\n\x11PsbtGetRecipients\x12\x19.PsbtGetRecipientsRequest\x1a\x1a.PsbtGetRecipientsResponse\x12+\n\x08PsbtSign\x12\x10.PsbtSignRequest\x1a\r.PsbtResponse\x12\x39\n\x0fPsbtSignNonMweb\x12\x17.PsbtSignNonMwebRequest\x1a\r.PsbtResponse\x12\x33\n\x0bPsbtExtract\x12\x13.PsbtExtractRequest\x1a\x0f.CreateResponse\x12*\n\x0eLedgerExchange\x12\x0b.LedgerApdu\x1a\x0b.LedgerApdu\x12\x32\n\tBroadcast\x12\x11.BroadcastRequest\x1a\x12.BroadcastResponse\x12/\n\x08\x43oinswap\x12\x10.CoinswapRequest\x1a\x11.CoinswapResponseB Z\x1egithub.com/ltcmweb/mwebd/protob\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0bmwebd.proto\"\x0f\n\rStatusRequest\"x\n\x0eStatusResponse\x12\x1b\n\x13\x62lock_header_height\x18\x01 \x01(\x05\x12\x1a\n\x12mweb_header_height\x18\x02 \x01(\x05\x12\x19\n\x11mweb_utxos_height\x18\x03 \x01(\x05\x12\x12\n\nblock_time\x18\x04 \x01(\r\"8\n\x0cUtxosRequest\x12\x13\n\x0b\x66rom_height\x18\x01 \x01(\x05\x12\x13\n\x0bscan_secret\x18\x02 \x01(\x0c\"]\n\x04Utxo\x12\x0e\n\x06height\x18\x01 \x01(\x05\x12\r\n\x05value\x18\x02 \x01(\x04\x12\x0f\n\x07\x61\x64\x64ress\x18\x03 \x01(\t\x12\x11\n\toutput_id\x18\x04 \x01(\t\x12\x12\n\nblock_time\x18\x05 \x01(\r\"a\n\x0e\x41\x64\x64ressRequest\x12\x12\n\nfrom_index\x18\x01 \x01(\r\x12\x10\n\x08to_index\x18\x02 \x01(\r\x12\x13\n\x0bscan_secret\x18\x03 \x01(\x0c\x12\x14\n\x0cspend_pubkey\x18\x04 \x01(\x0c\"\"\n\x0f\x41\x64\x64ressResponse\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x03(\t\"\x1a\n\nLedgerApdu\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"!\n\x0cSpentRequest\x12\x11\n\toutput_id\x18\x01 \x03(\t\"\"\n\rSpentResponse\x12\x11\n\toutput_id\x18\x01 \x03(\t\"t\n\rCreateRequest\x12\x0e\n\x06raw_tx\x18\x01 \x01(\x0c\x12\x13\n\x0bscan_secret\x18\x02 \x01(\x0c\x12\x14\n\x0cspend_secret\x18\x03 \x01(\x0c\x12\x17\n\x0f\x66\x65\x65_rate_per_kb\x18\x04 \x01(\x04\x12\x0f\n\x07\x64ry_run\x18\x05 \x01(\x08\"3\n\x0e\x43reateResponse\x12\x0e\n\x06raw_tx\x18\x01 \x01(\x0c\x12\x11\n\toutput_id\x18\x02 \x03(\t\"A\n\x11PsbtCreateRequest\x12\x0e\n\x06raw_tx\x18\x01 \x01(\x0c\x12\x1c\n\x0cwitness_utxo\x18\x02 \x03(\x0b\x32\x06.TxOut\")\n\x05TxOut\x12\r\n\x05value\x18\x01 \x01(\x03\x12\x11\n\tpk_script\x18\x02 \x01(\x0c\" \n\x0cPsbtResponse\x12\x10\n\x08psbt_b64\x18\x01 \x01(\t\"\x7f\n\x13PsbtAddInputRequest\x12\x10\n\x08psbt_b64\x18\x01 \x01(\t\x12\x13\n\x0bscan_secret\x18\x02 \x01(\x0c\x12\x11\n\toutput_id\x18\x03 \x01(\t\x12\x15\n\raddress_index\x18\x04 \x01(\r\x12\x17\n\x0f\x66\x65\x65_rate_per_kb\x18\x05 \x01(\x04\"g\n\x17PsbtAddRecipientRequest\x12\x10\n\x08psbt_b64\x18\x01 \x01(\t\x12!\n\trecipient\x18\x02 \x01(\x0b\x32\x0e.PsbtRecipient\x12\x17\n\x0f\x66\x65\x65_rate_per_kb\x18\x03 \x01(\x04\",\n\x18PsbtGetRecipientsRequest\x12\x10\n\x08psbt_b64\x18\x01 \x01(\t\"b\n\x19PsbtGetRecipientsResponse\x12!\n\trecipient\x18\x01 \x03(\x0b\x32\x0e.PsbtRecipient\x12\x15\n\rinput_address\x18\x02 \x03(\t\x12\x0b\n\x03\x66\x65\x65\x18\x03 \x01(\x03\"/\n\rPsbtRecipient\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x03\"N\n\x0fPsbtSignRequest\x12\x10\n\x08psbt_b64\x18\x01 \x01(\t\x12\x13\n\x0bscan_secret\x18\x02 \x01(\x0c\x12\x14\n\x0cspend_secret\x18\x03 \x01(\x0c\"K\n\x16PsbtSignNonMwebRequest\x12\x10\n\x08psbt_b64\x18\x01 \x01(\t\x12\x10\n\x08priv_key\x18\x02 \x01(\x0c\x12\r\n\x05index\x18\x03 \x01(\r\"8\n\x12PsbtExtractRequest\x12\x10\n\x08psbt_b64\x18\x01 \x01(\t\x12\x10\n\x08unsigned\x18\x02 \x01(\x08\"\"\n\x10\x42roadcastRequest\x12\x0e\n\x06raw_tx\x18\x01 \x01(\x0c\"!\n\x11\x42roadcastResponse\x12\x0c\n\x04txid\x18\x01 \x01(\t\"c\n\x0f\x43oinswapRequest\x12\x13\n\x0bscan_secret\x18\x01 \x01(\x0c\x12\x14\n\x0cspend_secret\x18\x02 \x01(\x0c\x12\x11\n\toutput_id\x18\x03 \x01(\t\x12\x12\n\naddr_index\x18\x04 \x01(\r\"%\n\x10\x43oinswapResponse\x12\x11\n\toutput_id\x18\x01 \x01(\t2\xf1\x05\n\x03Rpc\x12)\n\x06Status\x12\x0e.StatusRequest\x1a\x0f.StatusResponse\x12\x1f\n\x05Utxos\x12\r.UtxosRequest\x1a\x05.Utxo0\x01\x12.\n\tAddresses\x12\x0f.AddressRequest\x1a\x10.AddressResponse\x12&\n\x05Spent\x12\r.SpentRequest\x1a\x0e.SpentResponse\x12)\n\x06\x43reate\x12\x0e.CreateRequest\x1a\x0f.CreateResponse\x12/\n\nPsbtCreate\x12\x12.PsbtCreateRequest\x1a\r.PsbtResponse\x12\x33\n\x0cPsbtAddInput\x12\x14.PsbtAddInputRequest\x1a\r.PsbtResponse\x12;\n\x10PsbtAddRecipient\x12\x18.PsbtAddRecipientRequest\x1a\r.PsbtResponse\x12J\n\x11PsbtGetRecipients\x12\x19.PsbtGetRecipientsRequest\x1a\x1a.PsbtGetRecipientsResponse\x12+\n\x08PsbtSign\x12\x10.PsbtSignRequest\x1a\r.PsbtResponse\x12\x39\n\x0fPsbtSignNonMweb\x12\x17.PsbtSignNonMwebRequest\x1a\r.PsbtResponse\x12\x33\n\x0bPsbtExtract\x12\x13.PsbtExtractRequest\x1a\x0f.CreateResponse\x12*\n\x0eLedgerExchange\x12\x0b.LedgerApdu\x1a\x0b.LedgerApdu\x12\x32\n\tBroadcast\x12\x11.BroadcastRequest\x1a\x12.BroadcastResponse\x12/\n\x08\x43oinswap\x12\x10.CoinswapRequest\x1a\x11.CoinswapResponseB Z\x1egithub.com/ltcmweb/mwebd/protob\x06proto3')
 
 
 
@@ -260,29 +260,29 @@ if _descriptor._USE_C_DESCRIPTORS == False:
   _PSBTRESPONSE._serialized_start=822
   _PSBTRESPONSE._serialized_end=854
   _PSBTADDINPUTREQUEST._serialized_start=856
-  _PSBTADDINPUTREQUEST._serialized_end=958
-  _PSBTADDRECIPIENTREQUEST._serialized_start=960
-  _PSBTADDRECIPIENTREQUEST._serialized_end=1063
-  _PSBTGETRECIPIENTSREQUEST._serialized_start=1065
-  _PSBTGETRECIPIENTSREQUEST._serialized_end=1109
-  _PSBTGETRECIPIENTSRESPONSE._serialized_start=1111
-  _PSBTGETRECIPIENTSRESPONSE._serialized_end=1209
-  _PSBTRECIPIENT._serialized_start=1211
-  _PSBTRECIPIENT._serialized_end=1258
-  _PSBTSIGNREQUEST._serialized_start=1260
-  _PSBTSIGNREQUEST._serialized_end=1338
-  _PSBTSIGNNONMWEBREQUEST._serialized_start=1340
-  _PSBTSIGNNONMWEBREQUEST._serialized_end=1415
-  _PSBTEXTRACTREQUEST._serialized_start=1417
-  _PSBTEXTRACTREQUEST._serialized_end=1473
-  _BROADCASTREQUEST._serialized_start=1475
-  _BROADCASTREQUEST._serialized_end=1509
-  _BROADCASTRESPONSE._serialized_start=1511
-  _BROADCASTRESPONSE._serialized_end=1544
-  _COINSWAPREQUEST._serialized_start=1546
-  _COINSWAPREQUEST._serialized_end=1645
-  _COINSWAPRESPONSE._serialized_start=1647
-  _COINSWAPRESPONSE._serialized_end=1684
-  _RPC._serialized_start=1687
-  _RPC._serialized_end=2440
+  _PSBTADDINPUTREQUEST._serialized_end=983
+  _PSBTADDRECIPIENTREQUEST._serialized_start=985
+  _PSBTADDRECIPIENTREQUEST._serialized_end=1088
+  _PSBTGETRECIPIENTSREQUEST._serialized_start=1090
+  _PSBTGETRECIPIENTSREQUEST._serialized_end=1134
+  _PSBTGETRECIPIENTSRESPONSE._serialized_start=1136
+  _PSBTGETRECIPIENTSRESPONSE._serialized_end=1234
+  _PSBTRECIPIENT._serialized_start=1236
+  _PSBTRECIPIENT._serialized_end=1283
+  _PSBTSIGNREQUEST._serialized_start=1285
+  _PSBTSIGNREQUEST._serialized_end=1363
+  _PSBTSIGNNONMWEBREQUEST._serialized_start=1365
+  _PSBTSIGNNONMWEBREQUEST._serialized_end=1440
+  _PSBTEXTRACTREQUEST._serialized_start=1442
+  _PSBTEXTRACTREQUEST._serialized_end=1498
+  _BROADCASTREQUEST._serialized_start=1500
+  _BROADCASTREQUEST._serialized_end=1534
+  _BROADCASTRESPONSE._serialized_start=1536
+  _BROADCASTRESPONSE._serialized_end=1569
+  _COINSWAPREQUEST._serialized_start=1571
+  _COINSWAPREQUEST._serialized_end=1670
+  _COINSWAPRESPONSE._serialized_start=1672
+  _COINSWAPRESPONSE._serialized_end=1709
+  _RPC._serialized_start=1712
+  _RPC._serialized_end=2465
 # @@protoc_insertion_point(module_scope)

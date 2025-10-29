@@ -4,7 +4,7 @@ go 1.25.1
 
 require (
 	github.com/ltcmweb/ltcd v0.25.12
-	github.com/ltcmweb/mwebd v0.1.16
+	github.com/ltcmweb/mwebd v0.1.17
 )
 
 require (
