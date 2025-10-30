@@ -694,6 +694,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             self.adb.start_network(network)
             if self.lnworker:
                 self._start_network_lightning()
+            util.trigger_callback('blockchain_tip_updated', network.get_local_height())
 
     def _start_network_lightning(self):
         assert self.lnworker
