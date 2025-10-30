@@ -26,9 +26,9 @@ class Plugin(BasePlugin):
     def load_wallet(self, wallet, win):
         for k in wallet.get_keystores():
             if isinstance(k, Cupcake_KeyStore):
-                k.handler = Handler(win)
+                k.handler = QtHandler(win)
 
-class Handler(QtHandlerBase):
+class QtHandler(QtHandlerBase):
 
     show_ur_signal = pyqtSignal(object)
 

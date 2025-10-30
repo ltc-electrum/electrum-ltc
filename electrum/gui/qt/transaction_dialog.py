@@ -834,7 +834,9 @@ class TxDialog(QDialog, MessageBoxMixin):
     def update(self):
         if self.tx is None:
             return
-        tx = getattr(self.tx, '_original_tx', None) or self.tx
+        tx = self.tx
+        if isinstance(tx, PartialTransaction) and tx._original_tx:
+            tx = tx._original_tx
         self.io_widget.update(tx)
         desc = self.desc
         base_unit = self.main_window.base_unit()

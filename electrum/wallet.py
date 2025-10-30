@@ -59,6 +59,7 @@ from .util import (
 )
 from .bitcoin import COIN, is_address, is_mweb_address, is_minikey, relayfee, dust_threshold, DummyAddress, DummyAddressUsedInTxException
 from .keystore import (
+    Cupcake_KeyStore,
     load_keystore, Hardware_KeyStore, KeyStore, KeyStoreWithMPK, AddressIndexGeneric, CannotDerivePubkey
 )
 from .simple_config import SimpleConfig
@@ -70,6 +71,7 @@ from .transaction import (
     Transaction, TxInput, TxOutput, PartialTransaction, PartialTxInput, PartialTxOutput, TxOutpoint, Sighash
 )
 from .blockchain import hash_header
+from .interface import RequestTimedOut
 from .plugin import run_hook
 from .address_synchronizer import (
     AddressSynchronizer, TX_HEIGHT_LOCAL, TX_HEIGHT_UNCONF_PARENT, TX_HEIGHT_UNCONFIRMED, TX_HEIGHT_FUTURE,
@@ -2721,18 +2723,13 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         if txin.utxo is None or signing:
             txin.utxo = self.db.get_transaction(txin.prevout.txid.hex())
             if txin.utxo and signing and self.txin_type != 'mweb':
-                has_mweb_output = any(o.mweb_output_id for o in txin.utxo.outputs())
-                has_canonical_output = any(not o.mweb_output_id for o in txin.utxo.outputs())
-                if has_mweb_output and has_canonical_output:
+                mweb, base = partition(lambda x: x.mweb_output_id, txin.utxo.outputs())
+                if mweb and base:
                     try:  # pegin with change, need broadcasted rawtx for Ledger
-                        tx = Transaction(self.network.run_from_another_thread(
+                        txin.utxo = Transaction(self.network.run_from_another_thread(
                             self.network.get_transaction(txin.prevout.txid.hex(), timeout=10)))
-                        txout = txin.utxo.outputs()[txin.prevout.out_idx]
-                        indices = lambda tx: [i for i, o in enumerate(tx.outputs()) if o == txout]
-                        out_idx = indices(tx)[indices(txin.utxo).index(txin.prevout.out_idx)]
-                        txin.prevout = TxOutpoint(txin.prevout.txid, out_idx)
-                        txin.utxo = tx
-                    except: ()
+                    except RequestTimedOut:
+                        pass
         # Maybe remove witness_utxo. witness_utxo should not be present for non-segwit inputs.
         # If it is present, it might be because another electrum instance added it when sharing the psbt via QR code.
         # If we have the full utxo available, we can remove it without loss of information.
@@ -2884,11 +2881,14 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             tmp_tx = copy.copy(tx._original_tx)
             tmp_tx.locktime = tx.locktime
             change = []
-            if self.keystore.type != 'cupcake':
-                change, tmp_tx._outputs = partition(lambda x:
-                        any(x is y for y in tx.outputs()), tmp_tx.outputs())
-            tmp_tx, _ = mwebd.create(tmp_tx, self.keystore, tx._fee_estimator,
-                                     dry_run=False, password=password)
+            if isinstance(self.keystore, Cupcake_KeyStore):
+                tmp_tx._fee_estimator = tx._fee_estimator
+                self.keystore.sign_transaction(tmp_tx, password)
+            else:
+                base_change = lambda x: not is_mweb_address(x.address) and x.is_change
+                change, tmp_tx._outputs = partition(base_change, tmp_tx.outputs())
+                tmp_tx, _ = mwebd.create(tmp_tx, self.keystore, tx._fee_estimator,
+                                         dry_run=False, password=password)
             for x in ('_inputs', '_outputs', '_flag', '_extra_bytes'):
                 setattr(tx, x, getattr(tmp_tx, x))
             if change: tx.add_outputs(change)
@@ -3736,13 +3736,25 @@ class Abstract_Wallet(ABC, Logger, EventListener):
                 self.adb.add_verified_tx(tx.txid(), tx_info)
             await self.taskgroup.spawn(f())
 
-    async def broadcast_transaction(self, tx):
+    async def broadcast_transaction(self, tx: Transaction):
         async with self._async_lock:
             await self.network.broadcast_transaction(tx)
-            if otx := getattr(tx, '_original_tx', None):
-                tx2 = tx_from_any(otx.serialize_to_network(include_sigs=False))
+            if isinstance(tx, PartialTransaction) and tx._original_tx:
+                tx2 = tx_from_any(tx._original_tx.serialize_to_network(include_sigs=False))
+                self._match_output_order(tx, tx2)
                 tx2._cached_txid = tx.txid()
                 await self._add_transaction(tx2, 0)
+
+    def _match_output_order(self, tx: Transaction, tx2: Transaction):
+        common, outputs = [], []
+        for txout in tx.outputs():
+            if txout in tx2.outputs():
+                tx2._outputs.remove(txout)
+                common.append(txout)
+        for txout in tx.outputs():
+            outputs.append((common if txout in common else tx2._outputs).pop(0))
+        tx2._outputs[:0] = outputs
+        tx2.invalidate_ser_cache()
 
 
 class Simple_Wallet(Abstract_Wallet):

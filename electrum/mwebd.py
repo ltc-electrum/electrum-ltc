@@ -70,10 +70,6 @@ def stub(): return stubs()[0]
 def stub_async(): return stubs()[1]
 
 def create(tx, keystore, fee_estimator, *, dry_run = True, password = None):
-    if keystore.type == 'cupcake' and not dry_run:
-        tx._fee_estimator = fee_estimator
-        keystore.sign_transaction(tx, password)
-        return tx, 0
     scan_secret = spend_secret = bytes(32)
     if hasattr(keystore, 'scan_secret') and keystore.scan_secret:
         scan_secret = bytes.fromhex(keystore.scan_secret)

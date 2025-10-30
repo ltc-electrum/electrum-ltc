@@ -59,6 +59,7 @@ if TYPE_CHECKING:
     from .hw_wallet import HW_PluginBase, HardwareClientBase, HardwareHandlerBase
     from .wallet_db import WalletDB
     from .plugin import Device
+    from .plugins.cupcake import Cupcake_Handler
 
 
 class CannotDerivePubkey(Exception): pass
@@ -1014,13 +1015,17 @@ class Cupcake_KeyStore(BIP32_KeyStore):
 
     type = 'cupcake'
 
+    def __init__(self, d: dict):
+        super().__init__(d)
+        self.handler: Optional['Cupcake_Handler'] = None
+
     def is_watching_only(self):
         return False
 
     def may_have_password(self):
         return False
 
-    def sign_transaction(self, tx, password):
+    def sign_transaction(self, tx: PartialTransaction, password):
         self.handler.sign_transaction(self, tx)
 
 
