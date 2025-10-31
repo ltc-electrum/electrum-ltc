@@ -168,7 +168,7 @@ info "installing electrum and its dependencies."
 
 info "desktop integration."
 cp "$PROJECT_ROOT/electrum-ltc.desktop" "$APPDIR/electrum-ltc.desktop"
-cp "$PROJECT_ROOT/electrum/gui/icons/electrum.png" "$APPDIR/electrum.png"
+cp "$PROJECT_ROOT/electrum/gui/icons/electrum.png" "$APPDIR/electrum-ltc.png"
 
 
 # add launcher
