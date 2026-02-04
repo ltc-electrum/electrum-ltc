@@ -1,6 +1,8 @@
 import contextlib
 import copy
 import traceback
+import json
+from typing import Any
 
 import jsonpatch
 from jsonpatch import JsonPatchException
@@ -8,6 +10,7 @@ from jsonpointer import JsonPointerException
 
 from . import ElectrumTestCase
 
+from electrum.json_db import JsonDB
 
 class TestJsonpatch(ElectrumTestCase):
 
@@ -84,3 +87,68 @@ class TestJsonpatch(ElectrumTestCase):
             with self._customAssertRaises(JsonPointerException) as ctx:
                 data2 = jpatch.apply(data1)
             fail_if_leaking_secret(ctx)
+
+
+def pop1_from_dict(d: dict, key: str) -> Any:
+    return d.pop(key)
+
+
+def pop2_from_dict(d: dict, key: str) -> Any:
+    val = d[key]
+    del d[key]
+    return val
+
+
+class TestJsonDB(ElectrumTestCase):
+
+    async def test_jsonpatch_replace_after_remove(self):
+        data = { 'a':{} }
+        # op "add"
+        patches = [{"op": "add", "path": "/a/b", "value": "42"}]
+        jpatch = jsonpatch.JsonPatch(patches)
+        data = jpatch.apply(data)
+        self.assertEqual(data, {'a': {"b": "42"}})
+        # remove
+        patches = [{"op": "remove", "path": "/a/b"}]
+        jpatch = jsonpatch.JsonPatch(patches)
+        data = jpatch.apply(data)
+        self.assertEqual(data, {'a': {}})
+        # replace
+        patches = [{"op": "replace", "path": "/a/b", "value": "43"}]
+        jpatch = jsonpatch.JsonPatch(patches)
+        with self.assertRaises(JsonPatchException):
+            data = jpatch.apply(data)
+
+    async def test_jsondb_replace_after_remove(self):
+        for pop_from_dict in [pop1_from_dict, pop2_from_dict]:
+            with self.subTest(pop_from_dict):
+                data = { 'a': {'b': {'c': 0}}, 'd': 3}
+                db = JsonDB(repr(data))
+                a = db.get_dict('a')
+                # remove
+                b = pop_from_dict(a, 'b')
+                self.assertEqual(len(db.pending_changes), 1)
+                # replace item. this must not been written to db
+                b['c'] = 42
+                self.assertEqual(len(db.pending_changes), 1)
+                patches = json.loads('[' + ','.join(db.pending_changes) + ']')
+                jpatch = jsonpatch.JsonPatch(patches)
+                data = jpatch.apply(data)
+                self.assertEqual(data, {'a': {}, 'd': 3})
+
+    async def test_jsondb_replace_after_remove_nested(self):
+        for pop_from_dict in [pop1_from_dict, pop2_from_dict]:
+            with self.subTest(pop_from_dict):
+                data = { 'a': {'b': {'c': 0}}, 'd': 3}
+                db = JsonDB(repr(data))
+                # remove
+                a = pop_from_dict(db.data, "a")
+                self.assertEqual(len(db.pending_changes), 1)
+                b = a['b']
+                # replace item. this must not be written to db
+                b['c'] = 42
+                self.assertEqual(len(db.pending_changes), 1)
+                patches = json.loads('[' + ','.join(db.pending_changes) + ']')
+                jpatch = jsonpatch.JsonPatch(patches)
+                data = jpatch.apply(data)
+                self.assertEqual(data, {'d': 3})

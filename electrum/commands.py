@@ -71,7 +71,7 @@ from .wallet import (
 )
 from .address_synchronizer import TX_HEIGHT_LOCAL
 from .mnemonic import Mnemonic
-from .lnutil import (channel_id_from_funding_tx, LnFeatures, SENT, MIN_FINAL_CLTV_DELTA_ACCEPTED,
+from .lnutil import (channel_id_from_funding_tx, LnFeatures, SENT, RECEIVED, MIN_FINAL_CLTV_DELTA_ACCEPTED,
                      PaymentFeeBudget, NBLOCK_CLTV_DELTA_TOO_FAR_INTO_FUTURE)
 from .mwebd_pb2 import StatusRequest
 from .plugin import run_hook, DeviceMgr, Plugins
@@ -814,6 +814,8 @@ class Commands(Logger):
         ret["certifi.version"] = certifi.__version__
         import dns
         ret["dnspython.version"] = dns.__version__
+        import ssl
+        ret["openssl.version"] = ssl.OPENSSL_VERSION
 
         return ret
 
@@ -876,27 +878,23 @@ class Commands(Logger):
         if x is None:
             return None
         out = await wallet.contacts.resolve(x)
-        if out.get('type') == 'openalias' and self.nocheck is False and out.get('validated') is False:
-            raise UserFacingException(f"cannot verify alias: {x}")
         return out['address']
 
     @command('n')
-    async def sweep(self, privkey, destination, fee=None, feerate=None, nocheck=False, imax=100):
+    async def sweep(self, privkey, destination, fee=None, feerate=None, imax=100):
         """
         Sweep private keys. Returns a transaction that spends UTXOs from
         privkey to a destination address. The transaction will not be broadcast.
 
         arg:str:privkey:Private key. Type \'?\' to get a prompt.
         arg:str:destination:Litecoin address, contact or alias
-        arg:str:fee:Transaction fee (absolute, in LTC)
-        arg:str:feerate:Transaction fee rate (in sat/vbyte)
+        arg:decimal:fee:Transaction fee (absolute, in LTC)
+        arg:decimal:feerate:Transaction fee rate (in sat/vbyte)
         arg:int:imax:Maximum number of inputs
-        arg:bool:nocheck:Do not verify aliases
         """
         from .wallet import sweep
         fee_policy = self._get_fee_policy(fee, feerate)
         privkeys = privkey.split()
-        self.nocheck = nocheck
         #dest = self._resolver(destination)
         tx = await sweep(
             privkeys,
@@ -933,35 +931,34 @@ class Commands(Logger):
         message = util.to_bytes(message)
         return bitcoin.verify_usermessage_with_address(address, sig, message)
 
-    def _get_fee_policy(self, fee, feerate):
+    def _get_fee_policy(self, fee: str, feerate: str):
         if fee is not None and feerate is not None:
             raise Exception('Cannot set both fee and feerate')
         if fee is not None:
             fee_sats = satoshis(fee)
             fee_policy = FeePolicy(f'fixed:{fee_sats}')
         elif feerate is not None:
-            feerate_per_byte = 1000 * feerate
-            fee_policy = FeePolicy(f'feerate:{feerate_per_byte}')
+            sat_per_kvbyte = int(1000 * to_decimal(feerate))
+            fee_policy = FeePolicy(f'feerate:{sat_per_kvbyte}')
         else:
             fee_policy = FeePolicy(self.config.FEE_POLICY)
         return fee_policy
 
     @command('wp')
     async def payto(self, destination, amount, fee=None, feerate=None, from_addr=None, from_coins=None, change_addr=None,
-                    nocheck=False, unsigned=False, rbf=True, password=None, locktime=None, addtransaction=False, wallet: Abstract_Wallet = None):
+                    unsigned=False, rbf=True, password=None, locktime=None, addtransaction=False, wallet: Abstract_Wallet = None):
         """Create an on-chain transaction.
 
         arg:str:destination:Litecoin address, contact or alias
         arg:decimal_or_max:amount:Amount to be sent (in LTC). Type '!' to send the maximum available.
         arg:decimal:fee:Transaction fee (absolute, in LTC)
-        arg:float:feerate:Transaction fee rate (in sat/vbyte)
+        arg:decimal:feerate:Transaction fee rate (in sat/vbyte)
         arg:str:from_addr:Source address (must be a wallet address; use sweep to spend from non-wallet address)
         arg:str:change_addr:Change address. Default is a spare address, or the source address if it's not in the wallet
         arg:bool:rbf:Whether to signal opt-in Replace-By-Fee in the transaction (true/false)
         arg:bool:addtransaction:Whether transaction is to be used for broadcasting afterwards. Adds transaction to the wallet
         arg:int:locktime:Set locktime block number
         arg:bool:unsigned:Do not sign transaction
-        arg:bool:nocheck:Do not verify aliases
         arg:json:from_coins:Source coins (must be in wallet; use sweep to spend from non-wallet address)
         """
         return await self.paytomany(
@@ -971,7 +968,6 @@ class Commands(Logger):
             from_addr=from_addr,
             from_coins=from_coins,
             change_addr=change_addr,
-            nocheck=nocheck,
             unsigned=unsigned,
             rbf=rbf,
             password=password,
@@ -982,22 +978,20 @@ class Commands(Logger):
 
     @command('wp')
     async def paytomany(self, outputs, fee=None, feerate=None, from_addr=None, from_coins=None, change_addr=None,
-                        nocheck=False, unsigned=False, rbf=True, password=None, locktime=None, addtransaction=False, wallet: Abstract_Wallet = None):
+                        unsigned=False, rbf=True, password=None, locktime=None, addtransaction=False, wallet: Abstract_Wallet = None):
         """Create a multi-output transaction.
 
         arg:json:outputs:json list of ["address", "amount in LTC"]
         arg:bool:rbf:Whether to signal opt-in Replace-By-Fee in the transaction (true/false)
-        arg:str:fee:Transaction fee (absolute, in LTC)
-        arg:str:feerate:Transaction fee rate (in sat/vbyte)
+        arg:decimal:fee:Transaction fee (absolute, in LTC)
+        arg:decimal:feerate:Transaction fee rate (in sat/vbyte)
         arg:str:from_addr:Source address (must be a wallet address; use sweep to spend from non-wallet address)
         arg:str:change_addr:Change address. Default is a spare address, or the source address if it's not in the wallet
         arg:bool:addtransaction:Whether transaction is to be used for broadcasting afterwards. Adds transaction to the wallet
         arg:int:locktime:Set locktime block number
         arg:bool:unsigned:Do not sign transaction
-        arg:bool:nocheck:Do not verify aliases
         arg:json:from_coins:Source coins (must be in wallet; use sweep to spend from non-wallet address)
         """
-        self.nocheck = nocheck
         fee_policy = self._get_fee_policy(fee, feerate)
         domain_addr = from_addr.split(',') if from_addr else None
         domain_coins = from_coins.split(',') if from_coins else None
@@ -1156,7 +1150,11 @@ class Commands(Logger):
 
         arg:str:key:the alias to be retrieved
         """
-        return await wallet.contacts.resolve(key)
+        d = await wallet.contacts.resolve(key)
+        if d.get("type") == "openalias":
+            # we always validate DNSSEC now
+            d["validated"] = True
+        return d
 
     @command('w')
     async def searchcontacts(self, query, wallet: Abstract_Wallet = None):
@@ -1397,7 +1395,9 @@ class Commands(Logger):
     ) -> dict:
         """
         Create a lightning hold invoice for the given payment hash. Hold invoices have to get settled manually later.
-        HTLCs will get failed automatically if block_height + 144 > htlc.cltv_abs.
+        HTLCs will get failed automatically if block_height + 144 > htlc.cltv_abs, if the intention is to
+        settle them as late as possible a safety margin of some blocks should be used to prevent them
+        from getting failed accidentally.
 
         arg:str:payment_hash:Hex encoded payment hash to be used for the invoice
         arg:decimal:amount:Optional requested amount (in btc)
@@ -1406,8 +1406,8 @@ class Commands(Logger):
         arg:int:min_final_cltv_expiry_delta:Optional min final cltv expiry delta (default: 294 blocks)
         """
         assert len(payment_hash) == 64, f"Invalid payment hash length: {len(payment_hash)} != 64"
-        assert payment_hash not in wallet.lnworker.payment_info, "Payment hash already used!"
-        assert payment_hash not in wallet.lnworker.dont_settle_htlcs, "Payment hash already used!"
+        assert not wallet.lnworker.get_payment_info(bfh(payment_hash), direction=RECEIVED), "Payment hash already used!"
+        assert payment_hash not in wallet.lnworker.dont_expire_htlcs, "Payment hash already used!"
         assert wallet.lnworker.get_preimage(bfh(payment_hash)) is None, "Already got a preimage for this payment hash!"
         assert MIN_FINAL_CLTV_DELTA_ACCEPTED < min_final_cltv_expiry_delta < 576, "Use a sane min_final_cltv_expiry_delta value"
         amount = amount if amount and satoshis(amount) > 0 else None  # make amount either >0 or None
@@ -1421,13 +1421,15 @@ class Commands(Logger):
             min_final_cltv_delta=min_final_cltv_expiry_delta,
             exp_delay=expiry,
         )
-        info = wallet.lnworker.get_payment_info(bfh(payment_hash))
+        info = wallet.lnworker.get_payment_info(bfh(payment_hash), direction=RECEIVED)
         lnaddr, invoice = wallet.lnworker.get_bolt11_invoice(
             payment_info=info,
             message=memo,
             fallback_address=None
         )
-        wallet.lnworker.dont_settle_htlcs[payment_hash] = None
+        # this prevents incoming htlcs from getting expired while the preimage isn't set.
+        # If their blocks to expiry fall below MIN_FINAL_CLTV_DELTA_ACCEPTED they will get failed.
+        wallet.lnworker.dont_expire_htlcs[payment_hash] = MIN_FINAL_CLTV_DELTA_ACCEPTED
         wallet.set_label(payment_hash, memo)
         result = {
             "invoice": invoice
@@ -1445,14 +1447,12 @@ class Commands(Logger):
         assert len(preimage) == 64, f"Invalid payment_hash length: {len(preimage)} != 64"
         payment_hash: str = crypto.sha256(bfh(preimage)).hex()
         assert payment_hash not in wallet.lnworker._preimages, f"Invoice {payment_hash=} already settled"
-        assert payment_hash in wallet.lnworker.payment_info, \
-            f"Couldn't find lightning invoice for {payment_hash=}"
-        assert payment_hash in wallet.lnworker.dont_settle_htlcs, f"Invoice {payment_hash=} not a hold invoice?"
+        info = wallet.lnworker.get_payment_info(bfh(payment_hash), direction=RECEIVED)
+        assert info, f"Couldn't find lightning invoice for {payment_hash=}"
+        assert payment_hash in wallet.lnworker.dont_expire_htlcs, f"Invoice {payment_hash=} not a hold invoice?"
         assert wallet.lnworker.is_complete_mpp(bfh(payment_hash)), \
             f"MPP incomplete, cannot settle hold invoice {payment_hash} yet"
-        info: Optional['PaymentInfo'] = wallet.lnworker.get_payment_info(bfh(payment_hash))
         assert (wallet.lnworker.get_payment_mpp_amount_msat(bfh(payment_hash)) or 0) >= (info.amount_msat or 0)
-        del wallet.lnworker.dont_settle_htlcs[payment_hash]
         wallet.lnworker.save_preimage(bfh(payment_hash), bfh(preimage))
         util.trigger_callback('wallet_updated', wallet)
         result = {
@@ -1467,18 +1467,18 @@ class Commands(Logger):
 
         arg:str:payment_hash:Payment hash in hex of the hold invoice
         """
-        assert payment_hash in wallet.lnworker.payment_info, \
+        assert wallet.lnworker.get_payment_info(bfh(payment_hash), direction=RECEIVED), \
             f"Couldn't find lightning invoice for payment hash {payment_hash}"
         assert payment_hash not in wallet.lnworker._preimages, "Cannot cancel anymore, preimage already given."
-        assert payment_hash in wallet.lnworker.dont_settle_htlcs, f"{payment_hash=} not a hold invoice?"
+        assert payment_hash in wallet.lnworker.dont_expire_htlcs, f"{payment_hash=} not a hold invoice?"
         # set to PR_UNPAID so it can get deleted
-        wallet.lnworker.set_payment_status(bfh(payment_hash), PR_UNPAID)
-        wallet.lnworker.delete_payment_info(payment_hash)
+        wallet.lnworker.set_payment_status(bfh(payment_hash), PR_UNPAID, direction=RECEIVED)
+        wallet.lnworker.delete_payment_info(payment_hash, direction=RECEIVED)
         wallet.set_label(payment_hash, None)
+        del wallet.lnworker.dont_expire_htlcs[payment_hash]
         while wallet.lnworker.is_complete_mpp(bfh(payment_hash)):
-            # wait until the htlcs got failed so the payment won't get settled accidentally in a race
+            # block until the htlcs got failed
             await asyncio.sleep(0.1)
-        del wallet.lnworker.dont_settle_htlcs[payment_hash]
         result = {
             "cancelled": payment_hash
         }
@@ -1499,7 +1499,7 @@ class Commands(Logger):
         arg:str:payment_hash:Payment hash in hex of the hold invoice
         """
         assert len(payment_hash) == 64, f"Invalid payment_hash length: {len(payment_hash)} != 64"
-        info: Optional['PaymentInfo'] = wallet.lnworker.get_payment_info(bfh(payment_hash))
+        info: Optional['PaymentInfo'] = wallet.lnworker.get_payment_info(bfh(payment_hash), direction=RECEIVED)
         is_complete_mpp: bool = wallet.lnworker.is_complete_mpp(bfh(payment_hash))
         amount_sat = (wallet.lnworker.get_payment_mpp_amount_msat(bfh(payment_hash)) or 0) // 1000
         result = {
@@ -1511,18 +1511,17 @@ class Commands(Logger):
         elif not is_complete_mpp and not wallet.lnworker.get_preimage_hex(payment_hash):
             # is_complete_mpp is False for settled payments
             result["status"] = "unpaid"
-        elif is_complete_mpp and payment_hash in wallet.lnworker.dont_settle_htlcs:
+        elif is_complete_mpp and payment_hash in wallet.lnworker.dont_expire_htlcs:
             result["status"] = "paid"
             payment_key: str = wallet.lnworker._get_payment_key(bfh(payment_hash)).hex()
             htlc_status = wallet.lnworker.received_mpp_htlcs[payment_key]
             result["closest_htlc_expiry_height"] = min(
-                htlc.cltv_abs for _, htlc in htlc_status.htlc_set
+                mpp_htlc.htlc.cltv_abs for mpp_htlc in htlc_status.htlcs
             )
-        elif wallet.lnworker.get_preimage_hex(payment_hash) is not None \
-                and payment_hash not in wallet.lnworker.dont_settle_htlcs:
+        elif wallet.lnworker.get_preimage_hex(payment_hash) is not None:
             result["status"] = "settled"
             plist = wallet.lnworker.get_payments(status='settled')[bfh(payment_hash)]
-            _dir, amount_msat, _fee, _ts = wallet.lnworker.get_payment_value(info, plist)
+            _dir, amount_msat, _fee, _ts = wallet.lnworker.get_payment_value(None, plist)
             result["received_amount_sat"] = amount_msat // 1000
             result['preimage'] = wallet.lnworker.get_preimage_hex(payment_hash)
         if info is not None:
@@ -1632,6 +1631,8 @@ class Commands(Logger):
     async def test_inject_fee_etas(self, fee_est):
         """
         Inject fee estimates into the network object, as if they were coming from connected servers.
+        `setconfig 'test_disable_automatic_fee_eta_update' true` to prevent Network from overriding
+        the configured fees.
         Useful on regtest.
 
         arg:str:fee_est:dict of ETA-based fee estimates, encoded as str
@@ -1694,7 +1695,7 @@ class Commands(Logger):
         arg:int:timeout:Timeout in seconds (default=20)
         """
         lnworker = self.network.lngossip if gossip else wallet.lnworker
-        peer = await lnworker.add_peer(connection_string)
+        peer = await lnworker.lnpeermgr.add_peer(connection_string)
         try:
             await util.wait_for2(peer.initialized, timeout=LN_P2P_NETWORK_TIMEOUT)
         except (CancelledError, Exception) as e:
@@ -1707,7 +1708,7 @@ class Commands(Logger):
         """Display statistics about lightninig gossip"""
         lngossip = self.network.lngossip
         channel_db = lngossip.channel_db
-        forwarded = dict([(key.hex(), p._num_gossip_messages_forwarded) for key, p in wallet.lnworker.peers.items()]),
+        forwarded = dict([(key.hex(), p._num_gossip_messages_forwarded) for key, p in wallet.lnworker.lnpeermgr.peers.items()]),
         out = {
             'received': {
                 'channel_announcements': lngossip._num_chan_ann,
@@ -1738,7 +1739,7 @@ class Commands(Logger):
             'initialized': p.is_initialized(),
             'features': str(LnFeatures(p.features)),
             'channels': [c.funding_outpoint.to_str() for c in p.channels.values()],
-        } for p in lnworker.peers.values()]
+        } for p in lnworker.lnpeermgr.peers.values()]
 
     @command('wpnl')
     async def open_channel(self, connection_string, amount, push_amount=0, public=False, zeroconf=False, password=None, wallet: Abstract_Wallet = None):
@@ -1755,7 +1756,7 @@ class Commands(Logger):
             raise UserFacingException("This wallet cannot create new channels")
         funding_sat = satoshis(amount)
         push_sat = satoshis(push_amount)
-        peer = await wallet.lnworker.add_peer(connection_string)
+        peer = await wallet.lnworker.lnpeermgr.add_peer(connection_string)
         chan, funding_tx = await wallet.lnworker.open_channel_with_peer(
             peer, funding_sat,
             push_sat=push_sat,
@@ -2204,7 +2205,7 @@ class Commands(Logger):
         pubkey = bfh(node_id)
         assert len(pubkey) == 33, 'invalid node_id'
 
-        peer = wallet.lnworker.peers[pubkey]
+        peer = wallet.lnworker.lnpeermgr.peers[pubkey]
         assert peer, 'node_id not a peer'
 
         path = [pubkey, wallet.lnworker.node_keypair.pubkey]
@@ -2404,7 +2405,7 @@ def add_global_options(parser, suppress=False):
         "--rpcpassword", dest=SimpleConfig.RPC_PASSWORD.key(), default=argparse.SUPPRESS,
         help=argparse.SUPPRESS if suppress else "RPC password")
     group.add_argument(
-        "--forgetconfig", action="store_true", dest=SimpleConfig.CONFIG_FORGET_CHANGES.key(), default=False,
+        "--forgetconfig", action="store_true", dest=SimpleConfig.CONFIG_FORGET_CHANGES.key(), default=None,
         help=argparse.SUPPRESS if suppress else "Forget config on exit")
 
 
@@ -2475,7 +2476,7 @@ def get_parser():
                 continue
             help = cmd.arg_descriptions.get(optname)
             if not help:
-                print(f'undocumented argument {cmdname}::{optname}')
+                print(f'undocumented argument {cmdname}::{optname}', file=sys.stderr)
             action = "store_true" if default is False else 'store'
             if action == 'store':
                 type_descriptor = cmd.arg_types.get(optname)
@@ -2490,11 +2491,11 @@ def get_parser():
                 continue
             help = cmd.arg_descriptions.get(param)
             if not help:
-                print(f'undocumented argument {cmdname}::{param}')
+                print(f'undocumented argument {cmdname}::{param}', file=sys.stderr)
             type_descriptor = cmd.arg_types.get(param)
             _type = arg_types.get(type_descriptor)
             if help is not None and _type is None:
-                print(f'unknown type \'{_type}\' for {cmdname}::{param}')
+                print(f'unknown type \'{_type}\' for {cmdname}::{param}', file=sys.stderr)
             p.add_argument(param, help=help, type=_type)
 
         cvh = config_variables.get(cmdname)

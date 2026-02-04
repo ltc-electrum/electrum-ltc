@@ -38,6 +38,8 @@ ApplicationWindow
     property alias keyboardFreeZone: _keyboardFreeZone
     property alias infobanner: _infobanner
 
+    property string pendingIntent: ""
+
     property variant activeDialogs: []
 
     property var _exceptionDialog
@@ -120,7 +122,7 @@ ApplicationWindow
 
     header: ToolBar {
         id: toolbar
- 
+
         // Add top margin for status bar on Android when using edge-to-edge
         topPadding: app.statusBarHeight
 
@@ -269,7 +271,7 @@ ApplicationWindow
             Layout.fillWidth: true
 
             initialItem: Component {
-                WalletMainView {}
+                Wallets {}
             }
 
             function getRoot() {
@@ -281,6 +283,10 @@ ApplicationWindow
                 } else {
                     mainStackView.push(item)
                 }
+            }
+            function replaceRoot(item_url) {
+                mainStackView.clear()
+                mainStackView.push(Qt.resolvedUrl(item_url))
             }
         }
 
@@ -409,14 +415,6 @@ ApplicationWindow
     Component {
         id: _passwordDialog
         PasswordDialog {
-            onClosed: destroy()
-        }
-    }
-
-    property alias pinDialog: _pinDialog
-    Component {
-        id: _pinDialog
-        Pin {
             onClosed: destroy()
         }
     }
@@ -627,13 +625,71 @@ ApplicationWindow
         }
     }
 
-    property var _opendialog: undefined
+    property var _pendingBiometricAuth: null
+    property var _loadingWalletContext: null
+
+    Connections {
+        target: Biometrics
+        function onUnlockSuccess(password) {
+            if (app._pendingBiometricAuth) {
+                if (app._pendingBiometricAuth.action === 'load_wallet') {
+                    app._loadingWalletContext = _pendingBiometricAuth
+                    Daemon.loadWallet(app._pendingBiometricAuth.path, password)
+                    app._pendingBiometricAuth = null
+                    return
+                }
+
+                let qtobject = app._pendingBiometricAuth.qtobject
+                let method = app._pendingBiometricAuth.method
+
+                if (Daemon.currentWallet.verifyPassword(password)) {
+                    qtobject.authProceed()
+                } else {
+                    console.warn("Biometric password invalid falling back to manual input")
+                    // this shouldn't really happen so we better disable biometric auth
+                    Biometrics.disable()
+                    handleManualAuth(qtobject, method, app._pendingBiometricAuth.authMessage)
+                }
+                app._pendingBiometricAuth = null
+            }
+        }
+
+        function onUnlockError(error) {
+            console.log("Biometric auth failed: " + error)
+            // we end up here if QEBiometrics fails to give us the decrypted password. The user might
+            // have cancelled the biometric auth popup or the key got invalidated because a new fingerprint got registered.
+            if (app._pendingBiometricAuth) {
+                if (app._pendingBiometricAuth.action === 'load_wallet') {
+                    // set loadingWalletContext to disable biometric auth until the OpenWalletDialog is closed
+                    app._loadingWalletContext = app._pendingBiometricAuth
+                    showOpenWalletDialog(app._pendingBiometricAuth.name, app._pendingBiometricAuth.path)
+                } else {
+                    console.log('biometric auth failed, not falling back to passwordDialog')
+                    app._pendingBiometricAuth.qtobject.authCancel()  // no fallback to password dialog
+                }
+                app._pendingBiometricAuth = null
+            }
+        }
+
+        function onAuthRequired(method, authMessage) {
+            handleAuthRequired(Biometrics, method, authMessage)
+        }
+    }
+
+    property var _opendialog: null
+    property var _opendialog_startup: true
 
     function showOpenWalletDialog(name, path) {
-        if (_opendialog == undefined) {
-            _opendialog = openWalletDialog.createObject(app, { name: name, path: path })
+        if (!_opendialog) {
+            _opendialog = openWalletDialog.createObject(app, {
+                name: name,
+                path: path,
+                isStartup: _opendialog_startup,
+            })
             _opendialog.closed.connect(function() {
-                _opendialog = undefined
+                _opendialog = null
+                app._loadingWalletContext = null  // dialog closed, we can allow trying biometric auth again
+                _opendialog_startup = false
             })
             _opendialog.open()
         }
@@ -643,7 +699,16 @@ ApplicationWindow
         target: Daemon
         function onWalletRequiresPassword(name, path) {
             console.log('wallet requires password')
-            showOpenWalletDialog(name, path)
+            if (Biometrics.isAvailable && Biometrics.isEnabled && !app._loadingWalletContext) {
+                app._pendingBiometricAuth = {
+                    action: 'load_wallet',
+                    name: name,
+                    path: path
+                }
+                Biometrics.unlock()
+            } else {
+                showOpenWalletDialog(name, path)
+            }
         }
         function onWalletOpenError(error) {
             console.log('wallet open error')
@@ -663,6 +728,9 @@ ApplicationWindow
             console.log('wallet loading')
             var dialog = loadingWalletDialog.createObject(app, { allowClose: false } )
             dialog.open()
+        }
+        function onWalletLoaded() {
+            app._loadingWalletContext = null  // either biometric auth or manual auth was successful
         }
     }
 
@@ -697,6 +765,10 @@ ApplicationWindow
             var obj = comp.createObject(app)
             if (obj != null)
                 app.pluginobjects[name] = obj
+        }
+        function onUriReceived(uri) {
+            console.log('uri received (main): ' + uri)
+            app.pendingIntent = uri
         }
     }
 
@@ -745,53 +817,54 @@ ApplicationWindow
     function handleAuthRequired(qtobject, method, authMessage) {
         console.log('auth using method ' + method)
 
-        if (method == 'wallet_else_pin') {
-            // if there is a loaded wallet and all wallets use the same password, use that
-            // else delegate to pin auth
-            if (Daemon.currentWallet && Daemon.singlePasswordEnabled) {
+        if (method === 'payment_auth') {
+            if (Config.paymentAuthentication) {
+                // treat like a wallet auth request
                 method = 'wallet'
             } else {
-                method = 'pin'
+                handleAuthConfirmationOnly(qtobject, authMessage)
+                return
             }
         }
 
-        if (method == 'wallet') {
-            if (Daemon.currentWallet.verifyPassword('')) {
-                // wallet has no password
-                qtobject.authProceed()
-            } else {
-                var dialog = app.passwordDialog.createObject(app, {'title': qsTr('Enter current password')})
-                dialog.accepted.connect(function() {
-                    if (Daemon.currentWallet.verifyPassword(dialog.password)) {
-                        qtobject.authProceed()
-                    } else {
-                        qtobject.authCancel()
-                    }
-                })
-                dialog.rejected.connect(function() {
-                    qtobject.authCancel()
-                })
-                dialog.open()
-            }
-        } else if (method == 'pin') {
-            if (Config.pinCode == '') {
-                // no PIN configured
-                handleAuthConfirmationOnly(qtobject, authMessage)
-            } else {
-                var dialog = app.pinDialog.createObject(app, {
-                    mode: 'check',
-                    pincode: Config.pinCode,
+        if (Daemon.currentWallet.verifyPassword('')) {
+            // wallet has no password
+            qtobject.authProceed()
+            return
+        }
+
+        if (method !== 'wallet_password_only') {
+            if (Biometrics.isAvailable && Biometrics.isEnabled) {
+                app._pendingBiometricAuth = {
+                    qtobject: qtobject,
+                    method: method,
                     authMessage: authMessage
-                })
-                dialog.accepted.connect(function() {
-                    qtobject.authProceed()
-                    dialog.close()
-                })
-                dialog.rejected.connect(function() {
-                    qtobject.authCancel()
-                })
-                dialog.open()
+                }
+                Biometrics.unlock(authMessage)
+                return
             }
+        }
+
+        handleManualAuth(qtobject, method, authMessage)
+    }
+
+    function handleManualAuth(qtobject, method, authMessage) {
+        // 'payment_auth' should have been converted to 'wallet' at this point
+        if (method === 'wallet' || method === 'wallet_password_only') {
+            var dialog = app.passwordDialog.createObject(app, authMessage ? {'title': authMessage} : {})
+            dialog.passwordEntered.connect(function(password) {
+                if (Daemon.currentWallet.verifyPassword(password)) {
+                    dialog.close()
+                    qtobject.authProceed()
+                } else {
+                    dialog.clearPassword()
+                    dialog.errorMessage = qsTr("Invalid Password")
+                }
+            })
+            dialog.rejected.connect(function() {
+                qtobject.authCancel()
+            })
+            dialog.open()
         } else {
             console.log('unknown auth method ' + method)
             qtobject.authCancel()

@@ -45,7 +45,7 @@
 #
 # 1. CPFP:
 # When a batch is forgotten but not mined (because the server returned an error), we no longer bump its fee.
-# However, the current code does not theat the next batch as a CPFP when computing the fee.
+# However, the current code does not treat the next batch as a CPFP when computing the fee.
 #
 # 2. Reorgs:
 # This code does not guarantee that a payment or a sweep will happen.
@@ -56,6 +56,13 @@
 # In the case of sweeps, lnwatcher ensures that SweepInfo is added again after a client restart.
 # In order to generalize that logic to payments, callers would need to pass a unique ID along with
 # the payment output, so that we can prevent paying twice.
+#
+# - nLocktime/CLTV values (bip-65) and nSequence/CSV values (bip-112) are either explicitly
+#   or implicitly block-height-based everywhere in this file.
+#   SCRIPT execution fails on height vs timestamp confusion, and
+#   it is not safe to do naive integer comparison between these values without establishing type.
+#   TODO review this is correct, and add checks.
+#    nLocktime/CLTV usage in particular seems dangerously *implicit* for being block-heights
 
 import asyncio
 import threading
@@ -265,16 +272,17 @@ class TxBatch(Logger):
 
     def is_dust(self, sweep_info: SweepInfo) -> bool:
         """Can raise NoDynamicFeeEstimates."""
-        if sweep_info.is_anchor():
+        if sweep_info.dust_override:
             return False
         if sweep_info.txout is not None:
             return False
         value = sweep_info.txin.value_sats()
         witness_size = len(sweep_info.txin.make_witness(71*b'\x00'))
         tx_size_vbytes = 84 + witness_size//4     # assumes no batching, sweep to p2wpkh
-        self.logger.info(f'{sweep_info.name} size = {tx_size_vbytes}')
         fee = self.fee_policy.estimate_fee(tx_size_vbytes, network=self.wallet.network)
-        return value - fee <= dust_threshold()
+        is_dust = value - fee <= dust_threshold()
+        self.logger.info(f'{sweep_info.name} size = {tx_size_vbytes}: {is_dust=}')
+        return is_dust
 
     @locked
     def add_sweep_input(self, sweep_info: 'SweepInfo') -> None:
@@ -516,7 +524,7 @@ class TxBatch(Logger):
         # sort inputs so that txin-txout pairs are first
         for sweep_info in sorted(to_sweep, key=lambda x: not bool(x.txout)):
             if sweep_info.cltv_abs is not None:
-                if locktime is None or locktime < sweep_info.cltv_abs:
+                if locktime is None or locktime < sweep_info.cltv_abs:  # FIXME height vs timestamp confusion
                     # nLockTime must be greater than or equal to the stack operand.
                     locktime = sweep_info.cltv_abs
             inputs.append(copy.deepcopy(sweep_info.txin))

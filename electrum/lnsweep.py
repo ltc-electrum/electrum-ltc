@@ -40,9 +40,11 @@ HTLCTX_INPUT_OUTPUT_INDEX = 0
 class SweepInfo(NamedTuple):
     name: str
     cltv_abs: Optional[int] # set to None only if the script has no cltv
+    # TODO add asserts that cltv_abs is block-based (see NLOCKTIME_BLOCKHEIGHT_MAX)
     txin: PartialTxInput
     txout: Optional[PartialTxOutput]  # only for first-stage htlc tx
     can_be_batched: bool # todo: this could be more fine-grained
+    dust_override: bool
 
     def is_anchor(self):
         return self.name in ['local_anchor', 'remote_anchor']
@@ -50,6 +52,15 @@ class SweepInfo(NamedTuple):
     @property
     def csv_delay(self):
         return self.txin.get_block_based_relative_locktime() or 0
+
+
+class KeepWatchingTXO(NamedTuple):
+    """Used for UTXOs we don't yet know if we want to sweep, such as pending HTLCs for JIT channels."""
+    name: str
+    until_height: int
+
+
+MaybeSweepInfo = SweepInfo | KeepWatchingTXO
 
 
 def sweep_their_ctx_watchtower(
@@ -260,6 +271,7 @@ def sweep_their_htlctx_justice(
                 txin=txin,
                 txout=None,
                 can_be_batched=False,
+                dust_override=False,
             )
     return index_to_sweepinfo
 
@@ -279,7 +291,7 @@ def sweep_our_ctx(
         *, chan: 'AbstractChannel',
         ctx: Transaction,
         actual_htlc_tx: Transaction=None, # if passed, return second stage htlcs
-) -> Dict[str, SweepInfo]:
+) -> Dict[str, MaybeSweepInfo]:
 
     """Handle the case where we force-close unilaterally with our latest ctx.
 
@@ -326,7 +338,7 @@ def sweep_our_ctx(
     # other outputs are htlcs
     # if they are spent, we need to generate the script
     # so, second-stage htlc sweep should not be returned here
-    txs = {}  # type: Dict[str, SweepInfo]
+    txs = {}  # type: Dict[str, MaybeSweepInfo]
 
     # local anchor
     if actual_htlc_tx is None and chan.has_anchors():
@@ -337,6 +349,7 @@ def sweep_our_ctx(
                 txin=txin,
                 txout=None,
                 can_be_batched=True,
+                dust_override=True,
             )
 
     # to_local
@@ -358,6 +371,7 @@ def sweep_our_ctx(
                 txin=txin,
                 txout=None,
                 can_be_batched=True,
+                dust_override=False,
             )
     we_breached = ctn < chan.get_oldest_unrevoked_ctn(LOCAL)
     if we_breached:
@@ -398,6 +412,7 @@ def sweep_our_ctx(
                 #   - in particular, it would be safe to batch htlcs where
                 #        htlc_direction, htlc.payment_hash, htlc.cltv_abs
                 #     all match. That is, MPP htlcs for the same payment.
+                dust_override=False,
             )
         else:
             # second-stage
@@ -412,7 +427,8 @@ def sweep_our_ctx(
                         privkey=our_localdelayed_privkey.get_secret_bytes(),
                         is_revocation=False,
                 ):
-                    txs[actual_htlc_tx.txid() + f':{output_idx}'] = SweepInfo(
+                    prevout = actual_htlc_tx.txid() + f':{output_idx}'
+                    txs[prevout] = SweepInfo(
                         name=f'second-stage-htlc:{output_idx}',
                         cltv_abs=0,
                         txin=sweep_txin,
@@ -420,6 +436,7 @@ def sweep_our_ctx(
                         # this is safe to batch, we are the only ones who can spend
                         # (assuming we did not broadcast a revoked state)
                         can_be_batched=True,
+                        dust_override=False,
                     )
 
     # offered HTLCs, in our ctx --> "timeout"
@@ -431,16 +448,20 @@ def sweep_our_ctx(
         subject=LOCAL,
         ctn=ctn)
     for (direction, htlc), (ctx_output_idx, htlc_relative_idx) in htlc_to_ctx_output_idx_map.items():
+        preimage = None
         if direction == RECEIVED:
-            if not chan.lnworker.is_complete_mpp(htlc.payment_hash):
-                # do not redeem this, it might publish the preimage of an incomplete MPP
-                continue
-            preimage = chan.lnworker.get_preimage(htlc.payment_hash)
+            # note: it is the first stage (witness of htlc_tx) that reveals the preimage,
+            #       so if we are already in second stage, it is already revealed.
+            #       However, here, we don't make a distinction.
+            preimage, keep_watching_txo = _maybe_reveal_preimage_for_htlc(
+                chan=chan, htlc=htlc,
+                sweep_info_name=f"our_ctx_htlc_{ctx_output_idx}",
+            )
+            if keep_watching_txo:
+                prevout = ctx.txid() + ':%d' % ctx_output_idx
+                txs[prevout] = keep_watching_txo
             if not preimage:
-                # we might not have the preimage if this is a hold invoice
                 continue
-        else:
-            preimage = None
         try:
             txs_htlc(
                 htlc=htlc,
@@ -451,6 +472,31 @@ def sweep_our_ctx(
         except UneconomicFee:
             continue
     return txs
+
+
+def _maybe_reveal_preimage_for_htlc(
+    *,
+    chan: 'AbstractChannel',
+    htlc: 'UpdateAddHtlc',
+    sweep_info_name: str,
+) -> Tuple[Optional[bytes], Optional[KeepWatchingTXO]]:
+    """Given a Remote-added-HTLC, return the preimage if it's okay to reveal it on-chain."""
+    if not chan.lnworker.is_complete_mpp(htlc.payment_hash):
+        # - do not redeem this, it might publish the preimage of an incomplete MPP
+        # - OTOH maybe this chan just got closed, and we are still receiving new htlcs
+        #   for this MPP set. So the MPP set might still transition to complete!
+        #   The MPP_TIMEOUT is only around 2 minutes, so this window is short.
+        #   The default keep_watching logic in lnwatcher is sufficient to call us again.
+        return None, None
+    if htlc.payment_hash.hex() in chan.lnworker.dont_settle_htlcs:
+        # we should not reveal the preimage *for now*, but we might still decide to reveal it later
+        keep_watching_txo = KeepWatchingTXO(
+            name=sweep_info_name + "_dont_settle_htlcs",
+            until_height=htlc.cltv_abs,
+        )
+        return None, keep_watching_txo
+    preimage = chan.lnworker.get_preimage(htlc.payment_hash)
+    return preimage, None
 
 
 def extract_ctx_secrets(chan: 'Channel', ctx: Transaction):
@@ -557,6 +603,7 @@ def sweep_their_ctx_to_remote_backup(
                 txin=txin,
                 txout=None,
                 can_be_batched=True,
+                dust_override=True,
             )
 
     # to_remote
@@ -577,6 +624,7 @@ def sweep_their_ctx_to_remote_backup(
                 txin=txin,
                 txout=None,
                 can_be_batched=True,
+                dust_override=False,
             )
     return txs
 
@@ -585,7 +633,7 @@ def sweep_their_ctx_to_remote_backup(
 
 def sweep_their_ctx(
         *, chan: 'Channel',
-        ctx: Transaction) -> Optional[Dict[str, SweepInfo]]:
+        ctx: Transaction) -> Optional[Dict[str, MaybeSweepInfo]]:
     """Handle the case when the remote force-closes with their ctx.
     Sweep outputs that do not have a CSV delay ('to_remote' and first-stage HTLCs).
     Outputs with CSV delay ('to_local' and second-stage HTLCs) are redeemed by LNWatcher.
@@ -599,7 +647,7 @@ def sweep_their_ctx(
 
     Outputs with CSV/CLTV are redeemed by LNWatcher.
     """
-    txs = {}  # type: Dict[str, SweepInfo]
+    txs = {}  # type: Dict[str, MaybeSweepInfo]
     our_conf, their_conf = get_ordered_channel_configs(chan=chan, for_us=True)
     x = extract_ctx_secrets(chan, ctx)
     if not x:
@@ -634,6 +682,7 @@ def sweep_their_ctx(
                 txin=txin,
                 txout=None,
                 can_be_batched=True,
+                dust_override=True,
             )
 
     # to_local is handled by lnwatcher
@@ -646,6 +695,7 @@ def sweep_their_ctx(
                 txin=txin,
                 txout=None,
                 can_be_batched=False,
+                dust_override=False,
             )
 
     # to_remote
@@ -676,6 +726,7 @@ def sweep_their_ctx(
                     txin=txin,
                     txout=None,
                     can_be_batched=True,
+                    dust_override=False,
                 )
 
     # HTLCs
@@ -715,6 +766,7 @@ def sweep_their_ctx(
                 txout=None,
                 can_be_batched=False,   # both parties can spend
                 # (still, in some cases we could batch, see comment in sweep_our_ctx)
+                dust_override=False,
             )
     # received HTLCs, in their ctx --> "timeout"
     # offered HTLCs, in their ctx --> "success"
@@ -725,17 +777,18 @@ def sweep_their_ctx(
         subject=REMOTE,
         ctn=ctn)
     for (direction, htlc), (ctx_output_idx, htlc_relative_idx) in htlc_to_ctx_output_idx_map.items():
+        preimage = None
         is_received_htlc = direction == RECEIVED
         if not is_received_htlc and not is_revocation:
-            if not chan.lnworker.is_complete_mpp(htlc.payment_hash):
-                # do not redeem this, it might publish the preimage of an incomplete MPP
-                continue
-            preimage = chan.lnworker.get_preimage(htlc.payment_hash)
+            preimage, keep_watching_txo = _maybe_reveal_preimage_for_htlc(
+                chan=chan, htlc=htlc,
+                sweep_info_name=f"their_ctx_htlc_{ctx_output_idx}",
+            )
+            if keep_watching_txo:
+                prevout = ctx.txid() + ':%d' % ctx_output_idx
+                txs[prevout] = keep_watching_txo
             if not preimage:
-                # we might not have the preimage if this is a hold invoice
                 continue
-        else:
-            preimage = None
         tx_htlc(
             htlc=htlc,
             is_received_htlc=is_received_htlc,

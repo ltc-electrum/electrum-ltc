@@ -18,6 +18,7 @@ from electrum.util import (
     NotEnoughFunds, NoDynamicFeeEstimates, parse_max_spend, UserCancelled, ChoiceItem,
     UserFacingException,
 )
+from electrum.lnutil import RECEIVED
 from electrum.invoices import PR_PAID, Invoice, PR_BROADCASTING, PR_BROADCAST
 from electrum.transaction import Transaction, PartialTxInput, PartialTxOutput
 from electrum.network import TxBroadcastError, BestEffortRequestFailed
@@ -84,8 +85,8 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
                + _("To set the amount to 'max', use the '!' special character.") + "\n"
                + _("Integers weights can also be used in conjunction with '!', "
                    "e.g. set one amount to '2!' and another to '3!' to split your coins 40-60."))
-        payto_label = HelpLabel(_('Pay to'), msg)
-        grid.addWidget(payto_label, 0, 0)
+        self.payto_label = HelpLabel(_('Pay to'), msg)
+        grid.addWidget(self.payto_label, 0, 0, Qt.AlignmentFlag.AlignLeft)
         grid.addWidget(self.payto_e, 0, 1, 1, 4)
 
         #completer = QCompleter()
@@ -111,7 +112,6 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
 
         msg = (_('The amount to be received by the recipient.') + ' '
                + _('Fees are paid by the sender.') + '\n\n'
-               + _('The amount will be displayed in red if you do not have enough funds in your wallet.') + ' '
                + _('Note that if you have frozen some of your addresses, the available funds will be lower than your total balance.') + '\n\n'
                + _('Keyboard shortcut: type "!" to send all your coins.'))
         amount_label = HelpLabel(_('Amount'), msg)
@@ -339,31 +339,26 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
         coins_conservative = get_coins(nonlocal_only=True, confirmed_only=True)
         candidates = self.wallet.get_candidates_for_batching(outputs, coins=coins_conservative)
 
-        tx, is_preview = self.window.confirm_tx_dialog(make_tx, output_value, batching_candidates=candidates)
+        tx, is_preview, paid_with_swap = self.window.confirm_tx_dialog(
+            make_tx,
+            output_value,
+            payee_outputs=[o for o in outputs if not o.is_change],
+            batching_candidates=candidates,
+        )
         if tx is None:
-            # user cancelled
+            if paid_with_swap:
+                self.do_clear()
+            # user cancelled or paid with swap
             return
 
-        if swap_dummy_output := tx.get_dummy_output(DummyAddress.SWAP):
-            sm = self.wallet.lnworker.swap_manager
-            with self.window.create_sm_transport() as transport:
-                if not self.window.initialize_swap_manager(transport):
-                    return
-                coro = sm.request_swap_for_amount(transport=transport, onchain_amount=swap_dummy_output.value)
-                try:
-                    swap, swap_invoice = self.window.run_coroutine_dialog(coro, _('Requesting swap invoice...'))
-                except (SwapServerError, UserFacingException) as e:
-                    self.show_error(str(e))
-                    return
-                except UserCancelled:
-                    return
-                tx.replace_output_address(DummyAddress.SWAP, swap.lockup_address)
-                assert tx.get_dummy_output(DummyAddress.SWAP) is None
-                tx.swap_invoice = swap_invoice
-                tx.swap_payment_hash = swap.payment_hash
-
         if is_preview:
-            self.window.show_transaction(tx, external_keypairs=external_keypairs, invoice=invoice)
+            self.window.show_transaction(
+                tx,
+                external_keypairs=external_keypairs,
+                invoice=invoice,
+                show_sign_button=self.wallet.wallet_type != '2fa',
+                show_broadcast_button=self.wallet.wallet_type != '2fa',
+            )
             return
         self.save_pending_invoice()
         def sign_done(success):
@@ -823,6 +818,11 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
                 _('You may load a CSV file using the file icon.')
             ])
             self.window.show_tooltip_after_delay(message)
+            self.payto_label.setAlignment(Qt.AlignmentFlag.AlignTop)
+            self.payto_label.setText(_('Pay to many'))
+        else:
+            self.payto_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+            self.payto_label.setText(_('Pay to'))
 
     def payto_contacts(self, labels):
         paytos = [self.window.get_contact_payto(label) for label in labels]
@@ -968,7 +968,7 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
                 address=None,
             )
             req = self.wallet.get_request(key)
-            info = self.wallet.lnworker.get_payment_info(req.payment_hash)
+            info = self.wallet.lnworker.get_payment_info(req.payment_hash, direction=RECEIVED)
             _lnaddr, b11_invoice = self.wallet.lnworker.get_bolt11_invoice(
                 payment_info=info,
                 message=req.get_message(),
@@ -990,3 +990,5 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
             self.window.run_coroutine_dialog(coro, _("Requesting lightning withdrawal..."))
         except LNURLError as e:
             self.show_error(f"{_('Failed to request withdrawal')}:\n{str(e)}")
+        except UserCancelled:
+            pass

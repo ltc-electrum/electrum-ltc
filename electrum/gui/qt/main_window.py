@@ -63,7 +63,7 @@ from electrum.util import (format_time, UserCancelled, profiler, bfh, InvalidPas
 from electrum.bip21 import BITCOIN_BIP21_URI_SCHEME
 from electrum.payment_identifier import PaymentIdentifier
 from electrum.invoices import PR_PAID, Invoice
-from electrum.transaction import (Transaction, PartialTxInput,
+from electrum.transaction import (Transaction, PartialTxInput, TxOutput,
                                   PartialTransaction, PartialTxOutput)
 from electrum.wallet import (Multisig_Wallet, Abstract_Wallet,
                              sweep_preparations, InternalAddressCorruption,
@@ -99,7 +99,7 @@ from .wizard.wallet import WIF_HELP_TEXT
 from .history_list import HistoryList, HistoryModel
 from .update_checker import UpdateCheck, UpdateCheckThread
 from .channels_list import ChannelsList
-from .confirm_tx_dialog import ConfirmTxDialog
+from .confirm_tx_dialog import ConfirmTxDialog, TxEditorContext
 from .rbf_dialog import BumpFeeDialog, DSCancelDialog
 from .qrreader import scan_qrcode_from_camera
 from .swap_dialog import SwapDialog, InvalidSwapParameters
@@ -1008,7 +1008,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         return self.config.format_fee_rate(fee_rate)
 
     def get_decimal_point(self):
-        return self.config.get_decimal_point()
+        return self.config.BTC_AMOUNTS_DECIMAL_POINT
 
     def base_unit(self):
         return self.config.get_base_unit()
@@ -1525,14 +1525,28 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
                 return
         # we need to know the fee before we broadcast, because the txid is required
         make_tx = self.mktx_for_open_channel(funding_sat=funding_sat, node_id=node_id)
-        funding_tx, _ = self.confirm_tx_dialog(make_tx, funding_sat, allow_preview=False)
+        funding_tx, _, _ = self.confirm_tx_dialog(make_tx, funding_sat, context=TxEditorContext.CHANNEL_FUNDING)
         if not funding_tx:
             return
         self._open_channel(connect_str, funding_sat, push_amt, funding_tx)
 
-    def confirm_tx_dialog(self, make_tx, output_value, *, allow_preview=True, batching_candidates=None) -> tuple[Optional[PartialTransaction], bool]:
-        d = ConfirmTxDialog(window=self, make_tx=make_tx, output_value=output_value, allow_preview=allow_preview, batching_candidates=batching_candidates)
-        return d.run(), d.is_preview
+    def confirm_tx_dialog(
+        self,
+        make_tx,
+        output_value, *,
+        payee_outputs: Optional[list[TxOutput]] = None,
+        context: TxEditorContext = TxEditorContext.PAYMENT,
+        batching_candidates=None,
+    ) -> tuple[Optional[PartialTransaction], bool, bool]:
+        d = ConfirmTxDialog(
+            window=self,
+            make_tx=make_tx,
+            output_value=output_value,
+            payee_outputs=payee_outputs,
+            context=context,
+            batching_candidates=batching_candidates,
+        )
+        return d.run(), d.is_preview, d.did_swap
 
     @protected
     def _open_channel(self, connect_str, funding_sat, push_amt, funding_tx, password):
@@ -1839,7 +1853,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
 
     def show_balance_dialog(self):
         balance = self.wallet.get_balances_for_piechart().total()
-        if balance == 0:
+        if balance == 0 and not self.balance_label.has_warning:
             return
         from .balance_dialog import BalanceDialog
         d = BalanceDialog(self, wallet=self.wallet)
@@ -1962,7 +1976,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             self.lightning_button.setText('')
             self.lightning_button.setToolTip(_("The Lightning Network graph is fully synced."))
         else:
-            self.lightning_button.setMaximumWidth(25 + 5 * char_width_in_lineedit())
+            self.lightning_button.setMaximumWidth(25 + 6 * char_width_in_lineedit())
             self.lightning_button.setText(progress_str)
             self.lightning_button.setToolTip(_("The Lightning Network graph is syncing...\n"
                                                "Payments are more likely to succeed with a more complete graph."))
@@ -2389,13 +2403,26 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         )
         if not fileName:
             return
+        file_content = None  # type: None | str | bytes
+        # 1. try to open file as "text"
         try:
-            with open(fileName, "rb") as f:
-                file_content = f.read()  # type: Union[str, bytes]
+            with open(fileName, "r", encoding="ascii") as f:
+                file_content = f.read()  # type: str
         except (ValueError, IOError, os.error) as reason:
-            self.show_critical(_("Electrum was unable to open your transaction file") + "\n" + str(reason),
-                               title=_("Unable to read file or no transaction found"))
-            return
+            pass
+        else:
+            assert isinstance(file_content, str), f"expected str, got {type(file_content)}"
+            file_content = file_content.strip()  # for text, we can safely strip leading/trailing whitespaces
+        # 2. try to open file as "binary"
+        if file_content is None:
+            try:
+                with open(fileName, "rb") as f:
+                    file_content = f.read()  # type: bytes
+            except (ValueError, IOError, os.error) as reason:
+                self.show_critical(_("Electrum was unable to open your transaction file") + "\n" + str(reason),
+                                   title=_("Unable to read file or no transaction found"))
+        if file_content is None:
+            return None
         return self.tx_from_text(file_content)
 
     def do_process_from_text(self):
@@ -2741,6 +2768,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         run_hook('close_settings_dialog')
         if d.need_restart:
             self.show_warning(_('Please restart Electrum to activate the new GUI settings'), title=_('Success'))
+        else:
+            # Some values might need to be updated if settings have changed.
+            # For example 'Can send' in the lightning tab will change if the fees config is changed.
+            self.refresh_tabs()
 
     def _show_closing_warnings(self) -> bool:
         """Show any closing warnings and return True if the user chose to quit anyway."""

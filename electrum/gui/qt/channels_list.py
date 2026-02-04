@@ -98,7 +98,7 @@ class ChannelsList(MyTreeView):
             labels[subject] = label
         status = chan.get_state_for_GUI()
         closed = chan.is_closed()
-        node_alias = self.lnworker.get_node_alias(chan.node_id) or chan.node_id.hex()
+        node_alias = self.lnworker.lnpeermgr.get_node_alias(chan.node_id) or chan.node_id.hex()
         capacity_str = self.main_window.format_amount(chan.get_capacity(), whitespaces=True)
         return {
             self.Columns.SHORT_CHANID: chan.short_id_for_GUI(),
@@ -207,8 +207,8 @@ class ChannelsList(MyTreeView):
             idx2 = selected[1]
             channel_id1 = idx1.sibling(idx1.row(), self.Columns.NODE_ALIAS).data(ROLE_CHANNEL_ID)
             channel_id2 = idx2.sibling(idx2.row(), self.Columns.NODE_ALIAS).data(ROLE_CHANNEL_ID)
-            chan1 = self.lnworker.channels.get(channel_id1)
-            chan2 = self.lnworker.channels.get(channel_id2)
+            chan1 = self.lnworker.get_channel_by_id(channel_id1)
+            chan2 = self.lnworker.get_channel_by_id(channel_id2)
             if chan1 and chan2 and (not self.lnworker.uses_trampoline() or chan1.node_id != chan2.node_id):
                 return chan1, chan2
         return None, None
@@ -368,7 +368,11 @@ class ChannelsList(MyTreeView):
         #     and maybe add item "main_window.init_lightning_dialog()" when applicable
         menu.setEnabled(self.wallet.has_lightning())
         self.new_channel_button = EnterButton(_('New Channel'), self.main_window.new_channel_dialog)
-        self.new_channel_button.setEnabled(self.wallet.can_have_lightning())
+        if not self.wallet.can_have_lightning():
+            self.new_channel_button.setEnabled(False)
+            self.new_channel_button.setToolTip(_("Lightning is not available for this wallet."))
+        else:
+            self.new_channel_button.setToolTip(_("Open a channel to send payments over the Lightning network."))
         toolbar.insertWidget(2, self.new_channel_button)
         return toolbar
 

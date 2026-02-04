@@ -36,6 +36,7 @@ from enum import IntEnum
 import itertools
 import binascii
 import copy
+import re
 
 import electrum_ecc as ecc
 from electrum_ecc.util import bip340_tagged_hash
@@ -357,16 +358,18 @@ class TxInput:
 
     def get_time_based_relative_locktime(self) -> Optional[int]:
         # see bip 68
-        if self.nsequence & (1<<31):
-            return
-        if self.nsequence & (1<<22):
+        if self.nsequence & (1<<31):  # "disable" flag
+            return None
+        if self.nsequence & (1<<22):  # in units of 512 sec
             return self.nsequence & 0xffff
+        return None
 
     def get_block_based_relative_locktime(self) -> Optional[int]:
-        if self.nsequence & (1<<31):
-            return
-        if not self.nsequence & (1<<22):
+        if self.nsequence & (1<<31):  # "disable" flag
+            return None
+        if not self.nsequence & (1<<22):  # in blocks
             return self.nsequence & 0xffff
+        return None
 
     @property
     def short_id(self):
@@ -1362,13 +1365,13 @@ class Transaction:
 
     def get_time_based_relative_locktime(self) -> Optional[int]:
         if self.version < 2:
-            return
+            return None
         locktimes = list(filter(None, [txin.get_time_based_relative_locktime() for txin in self.inputs()]))
         return max(locktimes) if locktimes else None
 
     def get_block_based_relative_locktime(self) -> Optional[int]:
         if self.version < 2:
-            return
+            return None
         locktimes = list(filter(None, [txin.get_block_based_relative_locktime() for txin in self.inputs()]))
         return max(locktimes) if locktimes else None
 
@@ -1523,7 +1526,16 @@ def convert_raw_tx_to_hex(raw: Union[str, bytes]) -> str:
     if not raw:
         raise ValueError("empty string")
     raw_unstripped = raw
-    raw = raw.strip()
+    if isinstance(raw, str):
+        # remove all whitespace characters, anywhere, for convenience
+        # - leading/trailing whitespaces are quite common for user-input
+        # - newlines in the middle can also happen, e.g. when copying a raw tx from a pdf
+        # note: we don't do this for bytes-like inputs, as whitespace-looking bytes can appear
+        #       anywhere in a raw tx. Even leading/trailing pseudo-whitespace: consider that
+        #       the nVersion or the nLocktime might contain e.g. "0a" bytes
+        #       consider:  "\n".encode().hex() == "0a"
+        #       For str, this is a non-issue and safe to do.
+        raw = re.sub(r'\s', '', raw)
     # try hex
     try:
         return binascii.unhexlify(raw).hex()
@@ -1565,7 +1577,7 @@ def tx_from_any(raw: Union[str, bytes], *,
         return tx
     except Exception as e:
         raise SerializationError(f"Failed to recognise tx encoding, or to parse transaction. "
-                                 f"raw: {raw[:30]}...") from e
+                                 f"raw: {raw[:30]!r}...") from e
 
 
 class PSBTGlobalType(IntEnum):
@@ -2261,9 +2273,9 @@ class PartialTransaction(Transaction):
         return res
 
     @classmethod
-    def from_raw_psbt(cls, raw) -> 'PartialTransaction':
+    def from_raw_psbt(cls, raw: Union[str, bytes, bytearray]) -> 'PartialTransaction':
         # auto-detect and decode Base64 and Hex.
-        if raw[0:10].lower() in (b'70736274ff', '70736274ff'):  # hex
+        if raw[0:10].lower() == '70736274ff':  # hex (str)
             raw = bytes.fromhex(raw)
         elif raw[0:6] in (b'cHNidP', 'cHNidP'):  # base64
             raw = base64.b64decode(raw, validate=True)

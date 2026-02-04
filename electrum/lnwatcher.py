@@ -11,11 +11,10 @@ from .transaction import Transaction, TxOutpoint
 from .logging import Logger
 from .address_synchronizer import TX_HEIGHT_LOCAL
 from .lnutil import REDEEM_AFTER_DOUBLE_SPENT_DELAY
-
+from .lnsweep import KeepWatchingTXO, SweepInfo
 
 if TYPE_CHECKING:
     from .network import Network
-    from .lnsweep import SweepInfo
     from .lnworker import LNWallet
     from .lnchannel import AbstractChannel
 
@@ -109,6 +108,8 @@ class LNWatcher(Logger, EventListener):
             closing_tx = self.adb.get_transaction(closing_txid)
             if closing_tx:
                 keep_watching = await self.sweep_commitment_transaction(funding_outpoint, closing_tx)
+                if not keep_watching:
+                    self.remove_callback(address)
             else:
                 self.logger.info(f"channel {funding_outpoint} closed by {closing_txid}. still waiting for tx itself...")
                 keep_watching = True
@@ -157,9 +158,7 @@ class LNWatcher(Logger, EventListener):
         chan = self.lnworker.channel_by_txo(funding_outpoint)
         if not chan:
             return False
-        if not chan.need_to_subscribe():
-            return False
-        self.logger.info(f'sweep_commitment_transaction {funding_outpoint}')
+        local_height = self.adb.get_local_height()
         # detect who closed and get information about how to claim outputs
         is_local_ctx, sweep_info_dict = chan.get_ctx_sweep_info(closing_tx)
         # note: we need to keep watching *at least* until the closing tx is deeply mined,
@@ -170,6 +169,10 @@ class LNWatcher(Logger, EventListener):
             prev_txid, prev_index = prevout.split(':')
             name = sweep_info.name + ' ' + chan.get_id_for_log()
             self.lnworker.wallet.set_default_label(prevout, name)
+            if isinstance(sweep_info, KeepWatchingTXO):  # haven't yet decided if we want to sweep
+                keep_watching |= sweep_info.until_height > local_height
+                continue
+            assert isinstance(sweep_info, SweepInfo), sweep_info
             if not self.adb.get_transaction(prev_txid):
                 # do not keep watching if prevout does not exist
                 self.logger.info(f'prevout does not exist for {name}: {prevout}')
@@ -181,9 +184,13 @@ class LNWatcher(Logger, EventListener):
                 # the spender might be the remote, revoked or not
                 htlc_sweepinfo = chan.maybe_sweep_htlcs(closing_tx, spender_tx)
                 for prevout2, htlc_sweep_info in htlc_sweepinfo.items():
+                    self.lnworker.wallet.set_default_label(prevout2, htlc_sweep_info.name)
+                    if isinstance(htlc_sweep_info, KeepWatchingTXO):  # haven't yet decided if we want to sweep
+                        keep_watching |= htlc_sweep_info.until_height > local_height
+                        continue
+                    assert isinstance(htlc_sweep_info, SweepInfo), htlc_sweep_info
                     watch_htlc_sweep_info = self.maybe_redeem(htlc_sweep_info)
                     htlc_tx_spender = self.adb.get_spender(prevout2)
-                    self.lnworker.wallet.set_default_label(prevout2, htlc_sweep_info.name)
                     if htlc_tx_spender:
                         keep_watching |= not self.adb.is_deeply_mined(htlc_tx_spender)
                         self.maybe_add_accounting_address(htlc_tx_spender, htlc_sweep_info)
@@ -210,10 +217,12 @@ class LNWatcher(Logger, EventListener):
         try:
             self.lnworker.wallet.txbatcher.add_sweep_input('lnwatcher', sweep_info)
         except BelowDustLimit:
+            self.logger.debug(f"maybe_redeem: BelowDustLimit: {sweep_info.name}")
             # utxo is considered dust at *current* fee estimates.
             # but maybe the fees atm are very high? We will retry later.
             pass
         except NoDynamicFeeEstimates:
+            self.logger.debug(f"maybe_redeem: NoDynamicFeeEstimates: {sweep_info.name}")
             pass  # will retry later
         if sweep_info.is_anchor():
             return False

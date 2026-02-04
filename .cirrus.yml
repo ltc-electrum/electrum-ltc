@@ -183,9 +183,16 @@ task:
     - tests/regtest/run_bitcoind.sh
   electrumx_service_background_script:
     - tests/regtest/run_electrumx.sh
+  # if any test fails, the test will get aborted (--failfast) and the wallet directories will be
+  # available for download in the Cirrus UI
   regtest_script:
     - sleep 10s
-    - python3 -m unittest tests/regtest.py
+    - python3 -m unittest tests/regtest.py --failfast || TEST_EXIT_CODE=$?
+    - tar -czf test_wallets.tar.gz /tmp/alice /tmp/bob /tmp/carol || true
+    - exit ${TEST_EXIT_CODE:-0}
+  on_failure:
+    wallet_artifacts:
+      path: "test_wallets.tar.gz"
   env:
     LD_LIBRARY_PATH: contrib/_saved_secp256k1_build/
     ELECTRUM_REQUIREMENTS: contrib/requirements/requirements.txt
@@ -204,7 +211,7 @@ task:
     folder: ~/.cache/pip
     fingerprint_script: echo Flake8 && echo $ELECTRUM_IMAGE && cat $ELECTRUM_REQUIREMENTS
   install_script:
-    - pip install "flake8==7.2.0" "flake8-bugbear==24.12.12"
+    - pip install "flake8==7.3.0" "flake8-bugbear==25.10.21"
   flake8_script:
     - flake8 . --count --select="$ELECTRUM_LINTERS" --ignore="$ELECTRUM_LINTERS_IGNORE" --show-source --statistics --exclude "*_pb2.py,electrum/_vendor/"
   env:
@@ -217,8 +224,8 @@ task:
         # - https://flake8.pycqa.org/en/latest/user/error-codes.html
         # - https://pycodestyle.pycqa.org/en/latest/intro.html#error-codes
         # - https://github.com/PyCQA/flake8-bugbear/tree/8c0e7eb04217494d48d0ab093bf5b31db0921989#list-of-warnings
-        ELECTRUM_LINTERS: E9,E101,E129,E273,E274,E703,E71,E722,F5,F6,F7,F8,W191,W29,B
-        ELECTRUM_LINTERS_IGNORE: B007,B009,B010,B019,B036,F541,F841
+        ELECTRUM_LINTERS: E9,E101,E129,E273,E274,E703,E71,E722,F5,F6,F7,F8,W191,W29,B,B909
+        ELECTRUM_LINTERS_IGNORE: B007,B009,B010,B036,B042,F541,F841
     - name: "linter: Flake8 Non-Mandatory"
       env:
         ELECTRUM_LINTERS: E,F,W,C90,B

@@ -11,6 +11,7 @@ import shutil
 import electrum
 from electrum.commands import Commands, eval_bool
 from electrum import storage, wallet
+from electrum.lnutil import RECEIVED
 from electrum.lnworker import RecvMPPResolution
 from electrum.wallet import Abstract_Wallet
 from electrum.address_synchronizer import TX_HEIGHT_UNCONFIRMED
@@ -313,6 +314,14 @@ class TestCommandsTestnet(ElectrumTestCase):
             locktime=1972344,
             wallet=wallet)
 
+        tx_str_2 = await cmds.payto(
+            destination="tb1qsyzgpwa0vg2940u5t6l97etuvedr5dejpf9tdy",
+            amount="0.00123456",
+            feerate="50.000",  # test that passing a string feerate results in the same tx
+            locktime=1972344,
+            wallet=wallet)
+
+        self.assertEqual(tx_str, tx_str_2)
         tx = tx_from_any(tx_str)
         self.assertEqual(2, len(tx.outputs()))
         txout = TxOutput.from_address_and_value("tltc1qsyzgpwa0vg2940u5t6l97etuvedr5dejcp84ad", 123456)
@@ -501,8 +510,8 @@ class TestCommandsTestnet(ElectrumTestCase):
             )
         invoice = lndecode(invoice=result['invoice'])
         assert invoice.paymenthash.hex() == payment_hash
-        assert payment_hash in wallet.lnworker.payment_info
-        assert payment_hash in wallet.lnworker.dont_settle_htlcs
+        assert wallet.lnworker.get_payment_info(bytes.fromhex(payment_hash), direction=RECEIVED)
+        assert payment_hash in wallet.lnworker.dont_expire_htlcs
         assert invoice.get_amount_sat() == 10000
         assert invoice.get_description() == "test"
         assert wallet.get_label_for_rhash(rhash=invoice.paymenthash.hex()) == "test"
@@ -512,8 +521,8 @@ class TestCommandsTestnet(ElectrumTestCase):
             payment_hash=payment_hash,
             wallet=wallet,
         )
-        assert payment_hash not in wallet.lnworker.payment_info
-        assert payment_hash not in wallet.lnworker.dont_settle_htlcs
+        assert not wallet.lnworker.get_payment_info(bytes.fromhex(payment_hash), direction=RECEIVED)
+        assert payment_hash not in wallet.lnworker.dont_expire_htlcs
         assert wallet.get_label_for_rhash(rhash=invoice.paymenthash.hex()) == ""
         assert cancel_result['cancelled'] == payment_hash
 
@@ -541,13 +550,13 @@ class TestCommandsTestnet(ElectrumTestCase):
             )
 
         mock_htlc1 = mock.Mock()
-        mock_htlc1.cltv_abs = 800_000
-        mock_htlc1.amount_msat = 4_500_000
+        mock_htlc1.htlc.cltv_abs = 800_000
+        mock_htlc1.htlc.amount_msat = 4_500_000
         mock_htlc2 = mock.Mock()
-        mock_htlc2.cltv_abs = 800_144
-        mock_htlc2.amount_msat = 5_500_000
+        mock_htlc2.htlc.cltv_abs = 800_144
+        mock_htlc2.htlc.amount_msat = 5_500_000
         mock_htlc_status = mock.Mock()
-        mock_htlc_status.htlc_set = [(None, mock_htlc1), (None, mock_htlc2)]
+        mock_htlc_status.htlcs = [mock_htlc1, mock_htlc2]
         mock_htlc_status.resolution = RecvMPPResolution.COMPLETE
 
         payment_key = wallet.lnworker._get_payment_key(bytes.fromhex(payment_hash)).hex()
@@ -563,7 +572,6 @@ class TestCommandsTestnet(ElectrumTestCase):
             )
         assert settle_result['settled'] == payment_hash
         assert wallet.lnworker._preimages[payment_hash] == preimage.hex()
-        assert payment_hash not in wallet.lnworker.dont_settle_htlcs
         with (mock.patch.object(
             wallet.lnworker,
             'get_payment_value',
@@ -752,22 +760,23 @@ class TestCommandsTestnet(ElectrumTestCase):
 
         # Mock the network and lnworker
         mock_lnworker = mock.Mock()
+        mock_lnworker.lnpeermgr = mock.Mock()
         w.lnworker = mock_lnworker
         mock_peer = mock.Mock()
         mock_peer.initialized = asyncio.Future()
         connection_string = "test_node_id@127.0.0.1:9735"
         called = False
-        async def lnworker_add_peer(*args, **kwargs):
+        async def lnpeermgr_add_peer(*args, **kwargs):
             assert args[0] == connection_string
             nonlocal called
             called += 1
             return mock_peer
-        mock_lnworker.add_peer = lnworker_add_peer
+        mock_lnworker.lnpeermgr.add_peer = lnpeermgr_add_peer
 
         # check if add_peer times out if peer doesn't initialize (LN_P2P_NETWORK_TIMEOUT is 0.001s)
         with self.assertRaises(UserFacingException):
             await cmds.add_peer(connection_string=connection_string, wallet=w)
-        # check if add_peer called lnworker.add_peer
+        # check if add_peer called lnpeermgr.add_peer
         assert called == 1
 
         mock_peer.initialized = asyncio.Future()

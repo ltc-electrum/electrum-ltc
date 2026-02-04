@@ -17,7 +17,7 @@ from electrum.keystore import bip44_derivation, bip39_to_seed, purpose48_derivat
 from electrum.plugin import run_hook, HardwarePluginLibraryUnavailable
 from electrum.storage import StorageReadWriteError
 from electrum.util import WalletFileException, get_new_wallet_name, UserFacingException, InvalidPassword
-from electrum.util import is_subpath, ChoiceItem, multisig_type, UserCancelled
+from electrum.util import is_subpath, ChoiceItem, multisig_type, UserCancelled, standardize_path
 from electrum.wallet import wallet_types
 from .wizard import QEAbstractWizard, WizardComponent
 from electrum.logging import get_logger, Logger
@@ -92,7 +92,7 @@ class QENewWalletWizard(NewWalletWizard, QEAbstractWizard, MessageBoxMixin):
         QEAbstractWizard.__init__(self, config, app, start_viewstate=start_viewstate)
         self.window_title = _('Create/Restore wallet')
 
-        self._path = path
+        self._path = standardize_path(path)
         self._password = None
 
         # attach gui classes to views
@@ -299,16 +299,17 @@ class WCWalletName(WalletWizardComponent, Logger):
             if _path:
                 self.name_e.setText(relative_path(_path))
 
-        def on_filename(filename):
-            # FIXME? "filename" might contain ".." (etc) and hence sketchy path traversals are possible
+        def on_filename(filename_or_path):
+            # Note: "filename" might contain ".." (etc) and hence sketchy path traversals are possible
             nonlocal temp_storage
             temp_storage = None
             msg = None
             self.wallet_exists = False
             self.wallet_is_open = False
             self.wallet_needs_hw_unlock = False
-            if filename:
-                _path = os.path.join(datadir_wallet_folder, filename)
+            if filename_or_path:
+                # Note: if filename_or_path is a path, os.path.join will leave it unchanged
+                _path = os.path.join(datadir_wallet_folder, filename_or_path)
                 wallet_from_memory = self.wizard._daemon.get_wallet(_path)
                 try:
                     if wallet_from_memory:
@@ -345,7 +346,7 @@ class WCWalletName(WalletWizardComponent, Logger):
                           + _("Press 'Finish' to create/focus window.")
             if msg is None:
                 msg = _('Cannot read file')
-            if filename and os.path.isabs(relative_path(_path)):
+            if filename_or_path and os.path.isabs(relative_path(_path)):
                 outside_text = _('Note: this wallet file is outside the default wallets folder.')
             else:
                 outside_text = ''
@@ -1280,19 +1281,40 @@ class WCWalletPasswordHardware(WalletWizardComponent):
         self.layout().addLayout(self.playout.layout())
         self.layout().addStretch(1)
 
-        self._valid = True
+        self._hw_password = None  # type: Optional[str]
+        self._valid = False
+
+    def on_ready(self):
+        _name, info = self.wizard_data['hardware_device']
+        device_id = info.device.id_
+        client = self.plugins.device_manager.client_by_id(device_id, scan_now=False)
+        if client is None:
+            self.valid = False
+            self.error = _("Client for hardware device was unpaired.")
+            return
+
+        def retrieve_password_task():
+            try:
+                self._hw_password = client.get_password_for_storage_encryption()
+                self.valid = True
+            except UserFacingException as e:
+                self.error = str(e)
+                self.valid = False
+            finally:
+                self.busy = False
+
+        self.busy = True
+        t = threading.Thread(target=retrieve_password_task, daemon=True)
+        t.start()
 
     def apply(self):
+        if not self.valid:
+            return
         self.wizard_data['encrypt'] = True
         if self.playout.should_encrypt_storage_with_xpub():
             self.wizard_data['xpub_encrypt'] = True
-            _name, _info = self.wizard_data['hardware_device']
-            device_id = _info.device.id_
-            client = self.plugins.device_manager.client_by_id(device_id, scan_now=False)
-            # client.handler = self.plugin.create_handler(self.wizard)
-            # FIXME client can be None if it was recently disconnected.
-            #       also, even if not None, this might raise (e.g. if it disconnected *just now*):
-            self.wizard_data['password'] = client.get_password_for_storage_encryption()
+            assert self._hw_password
+            self.wizard_data['password'] = self._hw_password
         else:
             self.wizard_data['xpub_encrypt'] = False
             self.wizard_data['password'] = self.playout.new_password()

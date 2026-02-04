@@ -214,9 +214,9 @@ class AuthenticatedServer(Logger):
         self.auth_lock = asyncio.Lock()
         self._methods = {}  # type: Dict[str, Callable]
 
-    def register_method(self, f):
-        assert f.__name__ not in self._methods, f"name collision for {f.__name__}"
-        self._methods[f.__name__] = f
+    def register_method(self, name: str, f):
+        assert name not in self._methods, f"name collision for {name}"
+        self._methods[name] = f
 
     async def authenticate(self, headers):
         if self.rpc_password == '':
@@ -299,12 +299,12 @@ class CommandsServer(AuthenticatedServer):
         self.port = self.config.RPC_PORT
         self.app = web.Application()
         self.app.router.add_post("/", self.handle)
-        self.register_method(self.ping)
-        self.register_method(self.gui)
+        self.register_method('ping', self.ping)
+        self.register_method('gui', self.gui)
         self.cmd_runner = Commands(config=self.config, network=self.daemon.network, daemon=self.daemon)
         for cmdname in known_commands:
-            self.register_method(getattr(self.cmd_runner, cmdname))
-        self.register_method(self.run_cmdline)
+            self.register_method(cmdname, getattr(self.cmd_runner, cmdname))
+        self.register_method('run_cmdline', self.run_cmdline)
 
     def _socket_config_str(self) -> str:
         if self.socktype == 'unix':
@@ -499,6 +499,8 @@ class Daemon(Logger):
         if wallet := self._wallets.get(wallet_key):
             if force_check_password:
                 wallet.check_password(password)
+            if self.config.get('wallet_path') is None:
+                self.config.CURRENT_WALLET = path
             return wallet
         wallet = self._load_wallet(
             path, password, upgrade=upgrade, config=self.config, force_check_password=force_check_password)
@@ -562,6 +564,8 @@ class Daemon(Logger):
         if os.path.exists(path):
             os.unlink(path)
             self.update_recently_opened_wallets(path, remove=True)
+            if self.config.CURRENT_WALLET == path:
+                self.config.CURRENT_WALLET = None
             return True
         return False
 
@@ -663,11 +667,12 @@ class Daemon(Logger):
             asyncio.run_coroutine_threadsafe(self.stop(), self.asyncio_loop).result()
 
     @with_wallet_lock
-    def _check_password_for_directory(self, *, old_password, new_password=None, wallet_dir: str) -> Tuple[bool, bool]:
+    def check_password_for_directory(self, *, old_password, new_password=None, wallet_dir: str) -> Tuple[bool, bool, list[str]]:
         """Checks password against all wallets (in dir), returns whether they can be unified and whether they are already.
         If new_password is not None, update all wallet passwords to new_password.
         """
         assert os.path.exists(wallet_dir), f"path {wallet_dir!r} does not exist"
+        succeeded = []
         failed = []
         is_unified = True
         for filename in os.listdir(wallet_dir):
@@ -706,9 +711,11 @@ class Daemon(Logger):
             if new_password:
                 self.logger.info(f'updating password for wallet: {path!r}')
                 wallet.update_password(old_password_real, new_password, encrypt_storage=True)
+            succeeded.append(path)
+
         can_be_unified = failed == []
         is_unified = can_be_unified and is_unified
-        return can_be_unified, is_unified
+        return can_be_unified, is_unified, succeeded
 
     @with_wallet_lock
     def update_password_for_directory(
@@ -724,13 +731,13 @@ class Daemon(Logger):
             return False
         if wallet_dir is None:
             wallet_dir = os.path.dirname(self.config.get_wallet_path())
-        can_be_unified, is_unified = self._check_password_for_directory(
+        can_be_unified, is_unified, _ = self.check_password_for_directory(
             old_password=old_password, new_password=None, wallet_dir=wallet_dir)
         if not can_be_unified:
             return False
         if is_unified and old_password == new_password:
             return True
-        self._check_password_for_directory(
+        self.check_password_for_directory(
             old_password=old_password, new_password=new_password, wallet_dir=wallet_dir)
         return True
 
