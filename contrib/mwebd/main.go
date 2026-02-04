@@ -11,8 +11,12 @@ import (
 )
 
 //export Start
-func Start(chain, dataDir string) C.int {
-	server, err := mwebd.NewServer(chain, dataDir, "")
+func Start(chain, dataDir, proxy string) C.int {
+	server, err := mwebd.NewServer2(&mwebd.ServerArgs{
+		Chain:     chain,
+		DataDir:   dataDir,
+		ProxyAddr: proxy,
+	})
 	if err != nil {
 		return 0
 	}

@@ -8,7 +8,6 @@ from threading import RLock
 
 from .bip32 import BIP32_PRIME
 from .bitcoin import is_mweb_address
-from . import constants
 from .logging import get_logger
 from .mwebd_pb2 import CoinswapRequest, CreateRequest
 from .mwebd_pb2_grpc import RpcStub
@@ -50,17 +49,25 @@ def scrypt(x):
     libmwebd().Scrypt(strgo(x), (c_char * len(buf)).from_buffer(buf))
     return buf
 
-def set_data_dir(dir):
-    global data_dir
-    data_dir = os.path.join(dir, 'mweb')
-    make_dir(data_dir, allow_symlink=False)
+def set_mwebd_config(cfg):
+    global config
+    config = cfg
 
 @lru_cache()
 def stubs():
     global port
+    chain = config.get_selected_chain()
+    data_dir = os.path.join(config.electrum_path(), 'mweb')
+    make_dir(data_dir, allow_symlink=False)
+    proxy = ''
+    if config.NETWORK_PROXY_ENABLED:
+        proxy_args = config.NETWORK_PROXY.split(':')
+        if proxy_user := config.NETWORK_PROXY_USER:
+            proxy_user += f':{config.NETWORK_PROXY_PASSWORD}@'
+        proxy = f'{proxy_args[0]}://{proxy_user or ''}{proxy_args[1]}:{proxy_args[2]}'
     with lock:
         if not port:
-            port = libmwebd().Start(strgo(constants.net.NET_NAME), strgo(data_dir))
+            port = libmwebd().Start(strgo(chain.NET_NAME), strgo(data_dir), strgo(proxy))
     target = f'unix://{data_dir}/mwebd.sock'
     if port > 1: target = f'127.0.0.1:{port}'
     return (RpcStub(grpc.insecure_channel(target)),

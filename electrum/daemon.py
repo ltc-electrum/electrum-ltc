@@ -54,6 +54,7 @@ from .exchange_rate import FxThread
 from .logging import get_logger, Logger
 from . import GuiImportError
 from .plugin import run_hook, Plugins
+from .mwebd import set_mwebd_config
 
 if TYPE_CHECKING:
     from electrum import gui
@@ -398,6 +399,7 @@ class Daemon(Logger):
     ):
         Logger.__init__(self)
         self.config = config
+        set_mwebd_config(config)
         self.listen_jsonrpc = listen_jsonrpc
         if fd is None and listen_jsonrpc:
             fd = get_file_descriptor(config)
