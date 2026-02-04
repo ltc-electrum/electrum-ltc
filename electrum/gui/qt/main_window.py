@@ -197,6 +197,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         self.pluginsdialog = None
         self.showing_cert_mismatch_error = False
         self.tl_windows = []
+        self.mwebd_status = None
         Logger.__init__(self)
 
         self._coroutines_scheduled = {}  # type: Dict[concurrent.futures.Future, str]
@@ -957,11 +958,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         # refresh invoices and requests because they show ETA
         self.receive_tab.request_list.refresh_all()
         self.send_tab.invoice_list.refresh_all()
+        try:
+            mwebd_status = mwebd.stub().Status(StatusRequest())
+        except Exception:
+            mwebd_status = None
+        mwebd_status_changed = mwebd_status != self.mwebd_status
+        self.mwebd_status = mwebd_status
         # Note this runs in the GUI thread
         if self.need_update.is_set():
             self.need_update.clear()
             self.update_wallet()
-        else:
+        elif not self.wallet.is_up_to_date() or mwebd_status_changed:
             # this updates "synchronizing" progress
             self.update_status()
         # resolve aliases
@@ -1064,10 +1071,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             server_height = self.network.get_server_height()
             server_lag = self.network.get_local_height() - server_height
             fork_str = "_fork" if len(self.network.get_blockchains())>1 else ""
-            try:
-                mwebd_status = mwebd.stub().Status(StatusRequest())
-            except:
-                mwebd_status = None
             # Server height can be 0 after switching to a new server
             # until we get a headers subscription request response.
             # Display the synchronizing message in that case.
@@ -1079,18 +1082,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             elif server_lag > 1:
                 network_text = _("Server is lagging ({} blocks)").format(server_lag)
                 icon = read_QIcon("status_lagging%s.png"%fork_str)
-            elif mwebd_status is None:
+            elif self.mwebd_status is None:
                 network_text = _("MWEB is disconnected")
                 icon = read_QIcon("status_disconnected.png")
-            elif mwebd_status.block_header_height < server_height:
+            elif self.mwebd_status.block_header_height < server_height:
                 network_text = ("{} ({}%)".format(_("Synchronizing MWEB..."),
-                                round(mwebd_status.block_header_height * 100 / server_height)))
+                                round(self.mwebd_status.block_header_height * 100 / server_height)))
                 icon = read_QIcon("status_waiting.png")
-            elif mwebd_status.mweb_header_height < server_height:
+            elif self.mwebd_status.mweb_header_height < server_height:
                 network_text = ("{} ({}%)".format(_("Synchronizing MWEB..."),
-                                round(mwebd_status.mweb_header_height * 100 / server_height)))
+                                round(self.mwebd_status.mweb_header_height * 100 / server_height)))
                 icon = read_QIcon("status_waiting.png")
-            elif mwebd_status.mweb_utxos_height < server_height:
+            elif self.mwebd_status.mweb_utxos_height < server_height:
                 network_text = _("Synchronizing MWEB...")
                 icon = read_QIcon("status_waiting.png")
             else:

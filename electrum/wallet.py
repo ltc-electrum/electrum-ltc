@@ -496,7 +496,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
             # polling.
             # TODO if adb had "up_to_date_changed" asyncio.Event(), we could *also* trigger on that.
             #      The polling would still be useful as often need to gen new addrs while adb.is_up_to_date() is False
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(1.0)
             # note: we only generate new HD addresses if the existing ones
             #       have history that are mined and SPV-verified.
             await run_in_thread(self.synchronize)
