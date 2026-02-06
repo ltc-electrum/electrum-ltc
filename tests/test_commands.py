@@ -315,7 +315,7 @@ class TestCommandsTestnet(ElectrumTestCase):
             wallet=wallet)
 
         tx_str_2 = await cmds.payto(
-            destination="tb1qsyzgpwa0vg2940u5t6l97etuvedr5dejpf9tdy",
+            destination="tltc1qsyzgpwa0vg2940u5t6l97etuvedr5dejcp84ad",
             amount="0.00123456",
             feerate="50.000",  # test that passing a string feerate results in the same tx
             locktime=1972344,
