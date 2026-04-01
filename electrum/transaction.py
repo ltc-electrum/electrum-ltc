@@ -2302,11 +2302,23 @@ class PartialTransaction(Transaction):
                         raise SerializationError(f"duplicate key: {repr(kt)}")
                     if key:
                         raise SerializationError(f"key for {repr(kt)} must be empty")
-                    unsigned_tx = Transaction(val.hex())
-                    for txin in unsigned_tx.inputs():
-                        if txin.script_sig or txin.witness:
-                            raise SerializationError(f"PSBT {repr(kt)} must have empty scriptSigs and witnesses")
-                    tx = PartialTransaction.from_tx(unsigned_tx)
+                    try:
+                        unsigned_tx = Transaction(val.hex())
+                        for txin in unsigned_tx.inputs():
+                            if txin.script_sig or txin.witness:
+                                raise SerializationError(f"PSBT {repr(kt)} must have empty scriptSigs and witnesses")
+                        tx = PartialTransaction.from_tx(unsigned_tx)
+                    except SerializationError as e:
+                        # MWEB paytomany(unsigned=true) can embed a minimal global unsigned tx blob
+                        # that is not a valid legacy Transaction stream (e.g. triggers segwit sentinel
+                        # n_vin==0 with flag 0x00). Outer PSBT magic is still valid.
+                        if 'invalid txn marker byte' in str(e):
+                            raise SerializationError(
+                                'PSBT_GLOBAL_UNSIGNED_TX is not a parseable standard unsigned transaction '
+                                '(often produced by MWEB paytomany with unsigned=true; use unsigned=false '
+                                'or wallet-local signing / mwebd).'
+                            ) from e
+                        raise
 
         if tx is None:
             raise SerializationError(f"PSBT missing required global section PSBT_GLOBAL_UNSIGNED_TX")

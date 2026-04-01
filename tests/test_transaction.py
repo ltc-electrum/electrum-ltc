@@ -287,6 +287,18 @@ class TestTransaction(ElectrumTestCase):
                     with self.assertRaises(transaction.SerializationError):
                         tx_from_any(data)  # should raise
 
+    def test_psbt_mweb_paytomany_unsigned_stub_phase_c_vector(self):
+        # Minimal PSBT from Litecoin mainnet Electrum-LTC 4.7.0 paytomany(unsigned=true);
+        # documented in mweb-coinswap-node docs/fixtures/electrum_phase_c_minimal_psbt_b64.txt
+        b64 = 'cHNidP8BAAoCAAAAAABbBy8AAA=='
+        with self.assertRaises(transaction.SerializationError) as ctx:
+            PartialTransaction.from_raw_psbt(b64)
+        self.assertIn('PSBT_GLOBAL_UNSIGNED_TX', str(ctx.exception))
+        self.assertIn('MWEB', str(ctx.exception))
+        with self.assertRaises(transaction.SerializationError) as ctx2:
+            tx_from_any(b64)
+        self.assertIn('PSBT_GLOBAL_UNSIGNED_TX', str(ctx2.exception))
+
 #####
 
     def _run_naive_tests_on_tx(self, raw_tx, txid):
