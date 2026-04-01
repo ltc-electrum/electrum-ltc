@@ -60,7 +60,7 @@ from .bip32 import BIP32Node
 from .i18n import _
 from .transaction import (
     Transaction, multisig_script, PartialTransaction, PartialTxOutput, tx_from_any, PartialTxInput, TxOutpoint,
-    convert_raw_tx_to_hex
+    convert_raw_tx_to_hex, try_deserialize_tx_structured
 )
 from . import transaction
 from .invoices import Invoice, PR_PAID, PR_UNPAID, PR_EXPIRED
@@ -615,6 +615,18 @@ class Commands(Logger):
         """
         tx = tx_from_any(tx)
         return tx.to_json()
+
+    @command('')
+    async def deserialize_structured(self, tx):
+        """
+        Deserialize like ``deserialize``, but return JSON for both success and failure.
+
+        On parse failure, returns ``{"ok": false, "error": {"code", "message", "detail"}}``
+        instead of raising (MWEB / PSBT stub tooling — coinswap-node M7-A2).
+
+        arg:str:tx:Serialized transaction
+        """
+        return try_deserialize_tx_structured(tx)
 
     @command('n')
     async def broadcast(self, tx):

@@ -1580,6 +1580,58 @@ def tx_from_any(raw: Union[str, bytes], *,
                                  f"raw: {raw[:30]!r}...") from e
 
 
+def _error_chain_messages(exc: BaseException) -> str:
+    parts = [str(exc)]
+    c = exc.__cause__
+    while c is not None:
+        parts.append(str(c))
+        c = getattr(c, "__cause__", None)
+    return " | ".join(parts)
+
+
+def classify_deserialize_failure(chain: str) -> str:
+    """Stable machine-oriented code for M7 tooling (coinswap-node / scripts)."""
+    if "PSBT_GLOBAL_UNSIGNED_TX is not a parseable" in chain:
+        return "PSBT_GLOBAL_UNSIGNED_TX_MWEB"
+    if "invalid txn marker byte" in chain:
+        return "LEGACY_TX_PARSE_OR_MWEB_STUB"
+    if "PSBT missing required global section PSBT_GLOBAL_UNSIGNED_TX" in chain:
+        return "PSBT_MISSING_UNSIGNED_TX"
+    if "Failed to recognise tx encoding" in chain or "Failed to recognize tx encoding" in chain:
+        return "TX_ENCODING_UNRECOGNIZED"
+    return "SERIALIZATION_ERROR"
+
+
+def try_deserialize_tx_structured(raw: Union[str, bytes]) -> dict:
+    """
+    Like tx_from_any + to_json, but returns a dict instead of raising on parse failure.
+
+    Success: {"ok": true, "tx": <to_json dict>}
+    Failure: {"ok": false, "error": {"code": <str>, "message": <outer str>, "detail": <cause chain>}}
+
+    Used by JSON-RPC ``deserialize_structured`` (M7-A2) so conductors do not scrape JSON-RPC error strings.
+    """
+    try:
+        t = tx_from_any(raw)
+        return {"ok": True, "tx": t.to_json()}
+    except SerializationError as e:
+        chain = _error_chain_messages(e)
+        return {
+            "ok": False,
+            "error": {
+                "code": classify_deserialize_failure(chain),
+                "message": str(e),
+                "detail": chain,
+            },
+        }
+    except ValueError as e:
+        s = str(e)
+        return {"ok": False, "error": {"code": "VALUE_ERROR", "message": s, "detail": s}}
+    except Exception as e:
+        s = str(e)
+        return {"ok": False, "error": {"code": "PARSE_FAILED", "message": s, "detail": s}}
+
+
 class PSBTGlobalType(IntEnum):
     UNSIGNED_TX = 0
     XPUB = 1

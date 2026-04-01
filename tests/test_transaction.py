@@ -299,6 +299,14 @@ class TestTransaction(ElectrumTestCase):
             tx_from_any(b64)
         self.assertIn('PSBT_GLOBAL_UNSIGNED_TX', str(ctx2.exception))
 
+    def test_try_deserialize_tx_structured_phase_c_vector_mweb_code(self):
+        b64 = 'cHNidP8BAAoCAAAAAABbBy8AAA=='
+        d = transaction.try_deserialize_tx_structured(b64)
+        self.assertFalse(d['ok'])
+        self.assertEqual(d['error']['code'], 'PSBT_GLOBAL_UNSIGNED_TX_MWEB')
+        self.assertIn('PSBT_GLOBAL_UNSIGNED_TX', d['error']['message'])
+        self.assertIn('detail', d['error'])
+
 #####
 
     def _run_naive_tests_on_tx(self, raw_tx, txid):
