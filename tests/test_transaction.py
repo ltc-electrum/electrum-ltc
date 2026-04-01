@@ -306,6 +306,9 @@ class TestTransaction(ElectrumTestCase):
         self.assertEqual(d['error']['code'], 'PSBT_GLOBAL_UNSIGNED_TX_MWEB')
         self.assertIn('PSBT_GLOBAL_UNSIGNED_TX', d['error']['message'])
         self.assertIn('detail', d['error'])
+        self.assertEqual(d['error']['psbt_unsigned_tx_value_len'], 10)
+        self.assertTrue(
+            d['error']['psbt_unsigned_tx_value_prefix_hex'].startswith('0200000000005b072f'))
 
 #####
 

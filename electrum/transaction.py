@@ -1589,6 +1589,38 @@ def _error_chain_messages(exc: BaseException) -> str:
     return " | ".join(parts)
 
 
+def sniff_psbt_global_unsigned_tx_adjunct(raw_in: Union[str, bytes]) -> Optional[Dict[str, Any]]:
+    """
+    If input is a well-formed PSBT containing PSBT_GLOBAL_UNSIGNED_TX, return measured
+    fields for M7 tooling (without successfully parsing the inner tx as legacy Transaction).
+    """
+    try:
+        raw_hex = convert_raw_tx_to_hex(raw_in)
+    except ValueError:
+        return None
+    if len(raw_hex) < 10 or raw_hex[0:10].lower() != '70736274ff':
+        return None
+    try:
+        blob = bytes.fromhex(raw_hex)
+    except Exception:
+        return None
+    if len(blob) < 5 or blob[0:5] != b'psbt\xff':
+        return None
+    with io.BytesIO(blob[5:]) as fd:
+        while True:
+            try:
+                kt, key, val = PSBTSection.get_next_kv_from_fd(fd)
+            except StopIteration:
+                break
+            if kt == 0 and key == b'':  # PSBT_GLOBAL_UNSIGNED_TX
+                prefix = val[:64].hex() if val else ''
+                return {
+                    'psbt_unsigned_tx_value_len': len(val),
+                    'psbt_unsigned_tx_value_prefix_hex': prefix,
+                }
+    return None
+
+
 def classify_deserialize_failure(chain: str) -> str:
     """Stable machine-oriented code for M7 tooling (coinswap-node / scripts)."""
     if "PSBT_GLOBAL_UNSIGNED_TX is not a parseable" in chain:
@@ -1616,14 +1648,17 @@ def try_deserialize_tx_structured(raw: Union[str, bytes]) -> dict:
         return {"ok": True, "tx": t.to_json()}
     except SerializationError as e:
         chain = _error_chain_messages(e)
-        return {
-            "ok": False,
-            "error": {
-                "code": classify_deserialize_failure(chain),
-                "message": str(e),
-                "detail": chain,
-            },
+        code = classify_deserialize_failure(chain)
+        err: Dict[str, Any] = {
+            "code": code,
+            "message": str(e),
+            "detail": chain,
         }
+        if code == "PSBT_GLOBAL_UNSIGNED_TX_MWEB":
+            adj = sniff_psbt_global_unsigned_tx_adjunct(raw)
+            if adj:
+                err.update(adj)
+        return {"ok": False, "error": err}
     except ValueError as e:
         s = str(e)
         return {"ok": False, "error": {"code": "VALUE_ERROR", "message": s, "detail": s}}
