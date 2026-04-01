@@ -310,6 +310,27 @@ class TestTransaction(ElectrumTestCase):
         self.assertTrue(
             d['error']['psbt_unsigned_tx_value_prefix_hex'].startswith('0200000000005b072f'))
 
+    def test_combine_mweb_partial_json_version_mismatch(self):
+        a = {"mweb_partial_version": 1, "hogex_id": "x"}
+        b = {"mweb_partial_version": 2, "hogex_id": "x"}
+        with self.assertRaises(transaction.CombineMwebPartialError) as ctx:
+            transaction.combine_mweb_partial_json(a, b)
+        self.assertIn("mismatch", str(ctx.exception).lower())
+
+    def test_combine_mweb_partial_json_hogex_mismatch(self):
+        a = {"mweb_partial_version": 1, "hogex_id": "a"}
+        b = {"mweb_partial_version": 1, "hogex_id": "b"}
+        with self.assertRaises(transaction.CombineMwebPartialError) as ctx:
+            transaction.combine_mweb_partial_json(a, b)
+        self.assertIn("hogex", str(ctx.exception).lower())
+
+    def test_combine_mweb_partial_json_not_implemented_merge(self):
+        a = {"mweb_partial_version": 1, "hogex_id": "same"}
+        b = {"mweb_partial_version": 1, "hogex_id": "same"}
+        with self.assertRaises(transaction.CombineMwebPartialError) as ctx:
+            transaction.combine_mweb_partial_json(a, b)
+        self.assertIn("not implemented", str(ctx.exception).lower())
+
 #####
 
     def _run_naive_tests_on_tx(self, raw_tx, txid):

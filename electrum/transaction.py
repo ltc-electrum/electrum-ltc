@@ -1667,6 +1667,34 @@ def try_deserialize_tx_structured(raw: Union[str, bytes]) -> dict:
         return {"ok": False, "error": {"code": "PARSE_FAILED", "message": s, "detail": s}}
 
 
+class CombineMwebPartialError(Exception):
+    """Invalid or unsupported merge of MWEB-Partial JSON blobs (M7 combine track)."""
+
+
+def combine_mweb_partial_json(part_a: Dict[str, Any], part_b: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Merge two **MWEB-Partial JSON** containers (staged hybrid — see mweb-coinswap-node ``docs/MWEB_PARTIAL_WIRE_v0.md``).
+
+    Bitcoin PSBT **combine** appends maps; MWEB requires **aggregating** kernels and blinding offsets with HogEx balance.
+    Full EC/kernel math is **not implemented** here yet — this entry point validates version alignment and rejects
+    obvious mismatches so RPC/tests can pin behavior before ``combinepsbt``-class integration.
+    """
+    if not isinstance(part_a, dict) or not isinstance(part_b, dict):
+        raise CombineMwebPartialError("parts must be dicts")
+    va = part_a.get("mweb_partial_version")
+    vb = part_b.get("mweb_partial_version")
+    if va is None or vb is None:
+        raise CombineMwebPartialError("missing mweb_partial_version on one or both parts")
+    if va != vb:
+        raise CombineMwebPartialError("mweb_partial_version mismatch")
+    ha, hb = part_a.get("hogex_id"), part_b.get("hogex_id")
+    if ha is not None and hb is not None and ha != hb:
+        raise CombineMwebPartialError("hogex_id mismatch")
+    raise CombineMwebPartialError(
+        "combine_mweb_partial_json: kernel/offset aggregation not implemented (M7-A3/B1 — use fork branch + mwebd math)"
+    )
+
+
 class PSBTGlobalType(IntEnum):
     UNSIGNED_TX = 0
     XPUB = 1
