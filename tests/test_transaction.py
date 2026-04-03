@@ -287,6 +287,50 @@ class TestTransaction(ElectrumTestCase):
                     with self.assertRaises(transaction.SerializationError):
                         tx_from_any(data)  # should raise
 
+    def test_psbt_mweb_paytomany_unsigned_stub_phase_c_vector(self):
+        # Minimal PSBT from Litecoin mainnet Electrum-LTC 4.7.0 paytomany(unsigned=true);
+        # documented in mweb-coinswap-node docs/fixtures/electrum_phase_c_minimal_psbt_b64.txt
+        b64 = 'cHNidP8BAAoCAAAAAABbBy8AAA=='
+        with self.assertRaises(transaction.SerializationError) as ctx:
+            PartialTransaction.from_raw_psbt(b64)
+        self.assertIn('PSBT_GLOBAL_UNSIGNED_TX', str(ctx.exception))
+        self.assertIn('MWEB', str(ctx.exception))
+        with self.assertRaises(transaction.SerializationError) as ctx2:
+            tx_from_any(b64)
+        self.assertIn('PSBT_GLOBAL_UNSIGNED_TX', str(ctx2.exception))
+
+    def test_try_deserialize_tx_structured_phase_c_vector_mweb_code(self):
+        b64 = 'cHNidP8BAAoCAAAAAABbBy8AAA=='
+        d = transaction.try_deserialize_tx_structured(b64)
+        self.assertFalse(d['ok'])
+        self.assertEqual(d['error']['code'], 'PSBT_GLOBAL_UNSIGNED_TX_MWEB')
+        self.assertIn('PSBT_GLOBAL_UNSIGNED_TX', d['error']['message'])
+        self.assertIn('detail', d['error'])
+        self.assertEqual(d['error']['psbt_unsigned_tx_value_len'], 10)
+        self.assertTrue(
+            d['error']['psbt_unsigned_tx_value_prefix_hex'].startswith('0200000000005b072f'))
+
+    def test_combine_mweb_partial_json_version_mismatch(self):
+        a = {"mweb_partial_version": 1, "hogex_id": "x"}
+        b = {"mweb_partial_version": 2, "hogex_id": "x"}
+        with self.assertRaises(transaction.CombineMwebPartialError) as ctx:
+            transaction.combine_mweb_partial_json(a, b)
+        self.assertIn("mismatch", str(ctx.exception).lower())
+
+    def test_combine_mweb_partial_json_hogex_mismatch(self):
+        a = {"mweb_partial_version": 1, "hogex_id": "a"}
+        b = {"mweb_partial_version": 1, "hogex_id": "b"}
+        with self.assertRaises(transaction.CombineMwebPartialError) as ctx:
+            transaction.combine_mweb_partial_json(a, b)
+        self.assertIn("hogex", str(ctx.exception).lower())
+
+    def test_combine_mweb_partial_json_not_implemented_merge(self):
+        a = {"mweb_partial_version": 1, "hogex_id": "same"}
+        b = {"mweb_partial_version": 1, "hogex_id": "same"}
+        with self.assertRaises(transaction.CombineMwebPartialError) as ctx:
+            transaction.combine_mweb_partial_json(a, b)
+        self.assertIn("not implemented", str(ctx.exception).lower())
+
 #####
 
     def _run_naive_tests_on_tx(self, raw_tx, txid):

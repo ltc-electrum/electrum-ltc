@@ -1580,6 +1580,121 @@ def tx_from_any(raw: Union[str, bytes], *,
                                  f"raw: {raw[:30]!r}...") from e
 
 
+def _error_chain_messages(exc: BaseException) -> str:
+    parts = [str(exc)]
+    c = exc.__cause__
+    while c is not None:
+        parts.append(str(c))
+        c = getattr(c, "__cause__", None)
+    return " | ".join(parts)
+
+
+def sniff_psbt_global_unsigned_tx_adjunct(raw_in: Union[str, bytes]) -> Optional[Dict[str, Any]]:
+    """
+    If input is a well-formed PSBT containing PSBT_GLOBAL_UNSIGNED_TX, return measured
+    fields for M7 tooling (without successfully parsing the inner tx as legacy Transaction).
+    """
+    try:
+        raw_hex = convert_raw_tx_to_hex(raw_in)
+    except ValueError:
+        return None
+    if len(raw_hex) < 10 or raw_hex[0:10].lower() != '70736274ff':
+        return None
+    try:
+        blob = bytes.fromhex(raw_hex)
+    except Exception:
+        return None
+    if len(blob) < 5 or blob[0:5] != b'psbt\xff':
+        return None
+    with io.BytesIO(blob[5:]) as fd:
+        while True:
+            try:
+                kt, key, val = PSBTSection.get_next_kv_from_fd(fd)
+            except StopIteration:
+                break
+            if kt == 0 and key == b'':  # PSBT_GLOBAL_UNSIGNED_TX
+                prefix = val[:64].hex() if val else ''
+                return {
+                    'psbt_unsigned_tx_value_len': len(val),
+                    'psbt_unsigned_tx_value_prefix_hex': prefix,
+                }
+    return None
+
+
+def classify_deserialize_failure(chain: str) -> str:
+    """Stable machine-oriented code for M7 tooling (coinswap-node / scripts)."""
+    if "PSBT_GLOBAL_UNSIGNED_TX is not a parseable" in chain:
+        return "PSBT_GLOBAL_UNSIGNED_TX_MWEB"
+    if "invalid txn marker byte" in chain:
+        return "LEGACY_TX_PARSE_OR_MWEB_STUB"
+    if "PSBT missing required global section PSBT_GLOBAL_UNSIGNED_TX" in chain:
+        return "PSBT_MISSING_UNSIGNED_TX"
+    if "Failed to recognise tx encoding" in chain or "Failed to recognize tx encoding" in chain:
+        return "TX_ENCODING_UNRECOGNIZED"
+    return "SERIALIZATION_ERROR"
+
+
+def try_deserialize_tx_structured(raw: Union[str, bytes]) -> dict:
+    """
+    Like tx_from_any + to_json, but returns a dict instead of raising on parse failure.
+
+    Success: {"ok": true, "tx": <to_json dict>}
+    Failure: {"ok": false, "error": {"code": <str>, "message": <outer str>, "detail": <cause chain>}}
+
+    Used by JSON-RPC ``deserialize_structured`` (M7-A2) so conductors do not scrape JSON-RPC error strings.
+    """
+    try:
+        t = tx_from_any(raw)
+        return {"ok": True, "tx": t.to_json()}
+    except SerializationError as e:
+        chain = _error_chain_messages(e)
+        code = classify_deserialize_failure(chain)
+        err: Dict[str, Any] = {
+            "code": code,
+            "message": str(e),
+            "detail": chain,
+        }
+        if code == "PSBT_GLOBAL_UNSIGNED_TX_MWEB":
+            adj = sniff_psbt_global_unsigned_tx_adjunct(raw)
+            if adj:
+                err.update(adj)
+        return {"ok": False, "error": err}
+    except ValueError as e:
+        s = str(e)
+        return {"ok": False, "error": {"code": "VALUE_ERROR", "message": s, "detail": s}}
+    except Exception as e:
+        s = str(e)
+        return {"ok": False, "error": {"code": "PARSE_FAILED", "message": s, "detail": s}}
+
+
+class CombineMwebPartialError(Exception):
+    """Invalid or unsupported merge of MWEB-Partial JSON blobs (M7 combine track)."""
+
+
+def combine_mweb_partial_json(part_a: Dict[str, Any], part_b: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Merge two **MWEB-Partial JSON** containers (staged hybrid — see mweb-coinswap-node ``docs/MWEB_PARTIAL_WIRE_v0.md``).
+
+    Bitcoin PSBT **combine** appends maps; MWEB requires **aggregating** kernels and blinding offsets with HogEx balance.
+    Full EC/kernel math is **not implemented** here yet — this entry point validates version alignment and rejects
+    obvious mismatches so RPC/tests can pin behavior before ``combinepsbt``-class integration.
+    """
+    if not isinstance(part_a, dict) or not isinstance(part_b, dict):
+        raise CombineMwebPartialError("parts must be dicts")
+    va = part_a.get("mweb_partial_version")
+    vb = part_b.get("mweb_partial_version")
+    if va is None or vb is None:
+        raise CombineMwebPartialError("missing mweb_partial_version on one or both parts")
+    if va != vb:
+        raise CombineMwebPartialError("mweb_partial_version mismatch")
+    ha, hb = part_a.get("hogex_id"), part_b.get("hogex_id")
+    if ha is not None and hb is not None and ha != hb:
+        raise CombineMwebPartialError("hogex_id mismatch")
+    raise CombineMwebPartialError(
+        "combine_mweb_partial_json: kernel/offset aggregation not implemented (M7-A3/B1 — use fork branch + mwebd math)"
+    )
+
+
 class PSBTGlobalType(IntEnum):
     UNSIGNED_TX = 0
     XPUB = 1
@@ -2302,11 +2417,23 @@ class PartialTransaction(Transaction):
                         raise SerializationError(f"duplicate key: {repr(kt)}")
                     if key:
                         raise SerializationError(f"key for {repr(kt)} must be empty")
-                    unsigned_tx = Transaction(val.hex())
-                    for txin in unsigned_tx.inputs():
-                        if txin.script_sig or txin.witness:
-                            raise SerializationError(f"PSBT {repr(kt)} must have empty scriptSigs and witnesses")
-                    tx = PartialTransaction.from_tx(unsigned_tx)
+                    try:
+                        unsigned_tx = Transaction(val.hex())
+                        for txin in unsigned_tx.inputs():
+                            if txin.script_sig or txin.witness:
+                                raise SerializationError(f"PSBT {repr(kt)} must have empty scriptSigs and witnesses")
+                        tx = PartialTransaction.from_tx(unsigned_tx)
+                    except SerializationError as e:
+                        # MWEB paytomany(unsigned=true) can embed a minimal global unsigned tx blob
+                        # that is not a valid legacy Transaction stream (e.g. triggers segwit sentinel
+                        # n_vin==0 with flag 0x00). Outer PSBT magic is still valid.
+                        if 'invalid txn marker byte' in str(e):
+                            raise SerializationError(
+                                'PSBT_GLOBAL_UNSIGNED_TX is not a parseable standard unsigned transaction '
+                                '(often produced by MWEB paytomany with unsigned=true; use unsigned=false '
+                                'or wallet-local signing / mwebd).'
+                            ) from e
+                        raise
 
         if tx is None:
             raise SerializationError(f"PSBT missing required global section PSBT_GLOBAL_UNSIGNED_TX")
