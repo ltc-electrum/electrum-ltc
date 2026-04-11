@@ -114,8 +114,6 @@ class InvoiceList(MyTreeView):
                 icon_name = 'lightning.png'
             else:
                 icon_name = 'bitcoin.png'
-                if item.bip70:
-                    icon_name = 'seal.png'
             status = self.wallet.get_invoice_status(item)
             amount = item.get_amount_sat()
             amount_str = self.main_window.format_amount(amount, whitespaces=True) if amount else ""
@@ -195,7 +193,7 @@ class InvoiceList(MyTreeView):
             if log:
                 menu.addAction(_("View log"), lambda: self.show_log(key, log))
         menu.addAction(_("Delete"), lambda: self.delete_invoices([key]))
-        menu.exec(self.viewport().mapToGlobal(position))
+        self.open_menu(menu, position)
 
     def show_log(self, key, log: Sequence[HtlcLog]):
         d = WindowModalDialog(self, _("Payment log"))

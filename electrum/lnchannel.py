@@ -793,7 +793,7 @@ class Channel(AbstractChannel):
         self.node_id = bfh(state["node_id"])
         self.onion_keys = state['onion_keys']  # type: Dict[int, bytes]
         self.data_loss_protect_remote_pcp = state['data_loss_protect_remote_pcp']
-        self.hm = HTLCManager(log=state['log'], initial_feerate=initial_feerate)
+        self.hm = HTLCManager(log=state['log'], initiator = LOCAL if self.constraints.is_initiator else REMOTE, initial_feerate=initial_feerate)
         self.unfulfilled_htlcs = state["unfulfilled_htlcs"]  # type: Dict[int, Optional[str]]
         # ^ htlc_id -> onion_packet_hex
         self._state = ChannelState[state['state']]
@@ -1101,8 +1101,6 @@ class Channel(AbstractChannel):
         util.trigger_callback('channel', self.lnworker.wallet, self)
 
     def is_frozen_for_receiving(self) -> bool:
-        if self.lnworker.uses_trampoline() and not self.lnworker.is_trampoline_peer(self.node_id):
-            return True
         return self.storage.get('frozen_for_receiving', False)
 
     def set_frozen_for_receiving(self, b: bool) -> None:
@@ -1479,7 +1477,7 @@ class Channel(AbstractChannel):
         #       small value htlcs: even a large htlc might not appear in the outgoing channel's ctx, e.g. maybe it was
         #       not committed yet - we should still make sure it gets removed on the incoming channel. (see #9631)
         if preimage:
-            self.lnworker.save_preimage(payment_hash, preimage)
+            self.lnworker.save_preimage(payment_hash, preimage, mark_as_public=True)
             for htlc, is_sent in found.values():
                 if is_sent:
                     self.lnworker.htlc_fulfilled(self, payment_hash, htlc.htlc_id)
@@ -1720,6 +1718,7 @@ class Channel(AbstractChannel):
         assert htlc_id not in self.hm.log[REMOTE]['settles']
         self.hm.send_settle(htlc_id)
         self.htlc_settle_time[htlc_id] = now()
+        self.lnworker.save_preimage(htlc.payment_hash, preimage, mark_as_public=True)
 
     def get_payment_hash(self, htlc_id: int) -> bytes:
         htlc = self.hm.get_htlc_by_id(LOCAL, htlc_id)
@@ -1737,6 +1736,7 @@ class Channel(AbstractChannel):
         assert htlc_id not in self.hm.log[LOCAL]['settles']
         with self.db_lock:
             self.hm.recv_settle(htlc_id)
+        self.lnworker.save_preimage(htlc.payment_hash, preimage, mark_as_public=True)
 
     def fail_htlc(self, htlc_id: int) -> None:
         """Fail a pending received HTLC.

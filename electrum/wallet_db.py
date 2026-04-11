@@ -69,7 +69,7 @@ class WalletUnfinished(WalletFileException):
 # seed_version is now used for the version of the wallet file
 OLD_SEED_VERSION = 4        # electrum versions < 2.0
 NEW_SEED_VERSION = 11       # electrum versions >= 2.0
-FINAL_SEED_VERSION = 66     # electrum >= 2.7 will set this to prevent
+FINAL_SEED_VERSION = 70     # electrum >= 2.7 will set this to prevent
                             # old versions from overwriting new format
 
 
@@ -117,9 +117,12 @@ for key in ['locked_in', 'fails', 'settles']:
 
 
 class WalletDBUpgrader(Logger):
-    def __init__(self, data):
+    def __init__(self, data: dict):
         Logger.__init__(self)
         self.data = data
+        # self.data must be in-memory dict (not a StoredDict or similar),
+        # so a failed, partial upgrade won't get commited to disk
+        assert type(self.data) == dict, type(self.data)
 
     def get(self, key, default=None):
         return self.data.get(key, default)
@@ -238,6 +241,10 @@ class WalletDBUpgrader(Logger):
         self._convert_version_64()
         self._convert_version_65()
         self._convert_version_66()
+        self._convert_version_67()
+        self._convert_version_68()
+        self._convert_version_69()
+        self._convert_version_70()
         self.put('seed_version', FINAL_SEED_VERSION)  # just to be sure
 
     def _convert_wallet_type(self):
@@ -1245,11 +1252,11 @@ class WalletDBUpgrader(Logger):
                 ])
 
             if len(new_type_htlcs) == 0:
-                self.logger.debug(f"_convert_version_62: dropping mpp set {payment_key=}.")
+                self.logger.debug(f"_convert_version_63: dropping mpp set {payment_key=}.")
                 del mpp_sets[payment_key]
             else:
                 recv_mpp_status[1] = new_type_htlcs
-                self.logger.debug(f"_convert_version_62: migrated mpp set {payment_key=}")
+                self.logger.debug(f"_convert_version_63: migrated mpp set {payment_key=}")
                 if forwarding_key is not None:
                     # if the forwarding key is set for the old mpp set it was either a forwarding
                     # or a swap hold invoice. Assuming users of 4.6.2 don't use forwarding this update
@@ -1305,7 +1312,13 @@ class WalletDBUpgrader(Logger):
         mpp_sets = self.data.get('received_mpp_htlcs', {})
         new_mpp_sets = {}
         for payment_key, mpp_set in mpp_sets.items():
-            resolution, htlc_list, parent_set_key = mpp_set
+            if len(mpp_set) == 2:
+                # if the db has received_mpp_htlcs pre version 65 we cannot assume they have parent_set_key
+                # as _convert_version_63 doesn't set it
+                resolution, htlc_list = mpp_set
+                parent_set_key = None
+            else:
+                resolution, htlc_list, parent_set_key = mpp_set
             new_htlc_list = []
             for htlc_data_tuple in htlc_list:
                 scid, update_add_htlc, onion = htlc_data_tuple
@@ -1331,6 +1344,61 @@ class WalletDBUpgrader(Logger):
 
         self.data['lightning_payments'] = new_payment_infos
         self.data['seed_version'] = 66
+
+    def _convert_version_67(self):
+        if not self._is_upgrade_method_needed(66, 66):
+            return
+        channels = self.data.get('channels', {})
+        for _key, chan in channels.items():
+            is_initiator = chan['constraints']['is_initiator']
+            key = '-1' if is_initiator else '1'
+            assert len(chan['log'][key]['fee_updates']) == 1, chan['log'][key]['fee_updates']
+            chan['log'][key]['fee_updates'] = {}
+        self.data['channels'] = channels
+        self.data['seed_version'] = 67
+
+    def _convert_version_68(self):
+        if not self._is_upgrade_method_needed(67, 67):
+            return
+        old_preimages = self.data.get('lightning_preimages', {})
+        new_preimages = {}
+        for _hash, preimage in old_preimages.items():
+            new_preimages[_hash] = (preimage, False)
+        self.data['lightning_preimages'] = new_preimages
+        self.data['seed_version'] = 68
+
+    def _convert_version_69(self):
+        """Convert PaymentInfo amounts from 0 to None"""
+        if not self._is_upgrade_method_needed(68, 68):
+            return
+        new_payment_infos = {}
+        old_payment_infos = self.data.get('lightning_payments', {})
+        for key, old_v in old_payment_infos.items():
+            #amount_msat, status, min_final_cltv_delta, expiry_delay, creation_ts, invoice_features = old_v
+            amount_msat = old_v[0]
+            rhash, direction = key.split(":")  # key is "RHASH:direction"
+            direction = int(direction)
+            if direction == 1:  # RECEIVED
+                if amount_msat == 0:
+                    amount_msat = None
+            new_v = (amount_msat, *old_v[1:])
+            new_payment_infos[key] = new_v
+        self.data['lightning_payments'] = new_payment_infos
+        self.data['seed_version'] = 69
+
+    def _convert_version_70(self):
+        """
+        Converts spending budget values of nwc plugin from sat to msat.
+        """
+        if not self._is_upgrade_method_needed(69, 69):
+            return
+        nwc_connections = self.data.get('plugin_data', {}).get('nwc', {}).get('connections', {})
+        for pubkey, connection in nwc_connections.items():
+            new_budget_spends = []
+            for amount_sat, timestamp in connection.get('budget_spends', []):
+                new_budget_spends.append([amount_sat * 1000, timestamp])
+            connection['budget_spends'] = new_budget_spends
+        self.data['seed_version'] = 70
 
     def _convert_imported(self):
         if not self._is_upgrade_method_needed(0, 13):

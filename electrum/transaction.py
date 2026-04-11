@@ -53,7 +53,7 @@ from .bitcoin import (
 from .crypto import sha256d, sha256
 from .logging import get_logger
 from .util import ShortID, OldTaskGroup
-from .descriptor import Descriptor, MissingSolutionPiece, create_dummy_descriptor_from_address
+from .descriptor import Descriptor, MissingSolutionPiece, create_dummy_descriptor_from_address, DUMMY_DER_SIG
 
 if TYPE_CHECKING:
     from .wallet import Abstract_Wallet
@@ -1034,8 +1034,7 @@ class Transaction:
             return construct_witness([])
 
         if estimate_size and hasattr(txin, 'make_witness'):
-            sig_dummy = b'\x00' * 71  # DER-encoded ECDSA sig, with low S and low R
-            txin.witness_sizehint = len(txin.make_witness(sig_dummy))
+            txin.witness_sizehint = len(txin.make_witness(DUMMY_DER_SIG))
 
         if estimate_size and txin.witness_sizehint is not None:
             return bytes(txin.witness_sizehint)
@@ -1304,6 +1303,7 @@ class Transaction:
         timeout=None,
     ) -> None:
         """note: it is recommended to call add_info_from_wallet first, as this can save some network requests"""
+        from .interface import NetworkException
         if not self.is_missing_info_from_network():
             return
         if progress_cb is None:
@@ -1337,6 +1337,8 @@ class Transaction:
         except Exception as e:
             has_errored = True
             _logger.error(f"tx.add_info_from_network() got exc: {e!r}")
+            if isinstance(e, NetworkException) and not ignore_network_issues:
+                raise
         finally:
             has_finished = True
             progress_cb(TxinDataFetchProgress(num_tasks_done, num_tasks_total, has_errored, has_finished))
@@ -1384,7 +1386,14 @@ class Transaction:
         BIP-0141 defines 'Virtual transaction size' to be weight/4 rounded up.
         This definition is only for humans, and has little meaning otherwise.
         If we wanted sub-byte precision, fee calculation should use transaction
-        weights, but for simplicity we approximate that with (virtual_size)x4
+        weights, but for simplicity we approximate that with (virtual_size)x4.
+        note: while we try to estimate as close to the true value as possible,
+            whenever that's not possible, we should over-estimate. E.g. ecdsa DER sig
+            sizes can be 71 or 72 bytes (even 73 though that is non-standard).
+            Over-estimating is preferred as the typical use-case is the user selecting
+            a target_feerate, and the code calculating abs fees as target_feerate*est_size.
+            If we over-estimate est_size there, that means the final true_feerate is going to
+            be higher than target_feerate, which is desirable especially near the min_relay_fee.
         """
         weight = self.estimated_weight()
         return self.virtual_size_from_weight(weight)

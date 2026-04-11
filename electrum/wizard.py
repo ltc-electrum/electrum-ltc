@@ -12,10 +12,11 @@ from electrum.logging import get_logger
 from electrum.network import ProxySettings
 from electrum.plugin import run_hook
 from electrum.slip39 import EncryptedSeed
-from electrum.storage import WalletStorage, StorageEncryptionVersion
+from electrum.storage import WalletStorage, StorageEncryptionVersion, StorageReadWriteError
+from electrum.util import UserFacingException
 from electrum.wallet_db import WalletDB
 from electrum.bip32 import normalize_bip32_derivation, xpub_type
-from electrum import keystore, mnemonic, bitcoin
+from electrum import descriptor, keystore, mnemonic, bitcoin
 from electrum.mnemonic import is_any_2fa_seed_type, can_seed_have_passphrase
 from electrum.util import multisig_type
 
@@ -691,8 +692,11 @@ class NewWalletWizard(KeystoreWizard):
         assert data['wallet_type'] in ['standard', '2fa', 'imported', 'multisig']
 
         if os.path.exists(path):
-            raise Exception('file already exists at path')
-        storage = WalletStorage(path)
+            raise UserFacingException(_('File already exists at path: {}').format(path))
+        try:
+            storage = WalletStorage(path)
+        except StorageReadWriteError as e:
+            raise UserFacingException(e)
 
         # TODO: refactor using self.keystore_from_data
         k = None
@@ -705,7 +709,12 @@ class NewWalletWizard(KeystoreWizard):
                 for pk in keys:
                     assert bitcoin.is_private_key(pk)
                     txin_type, pubkey = k.import_privkey(pk, None)
-                    addr = bitcoin.pubkey_to_address(txin_type, pubkey)
+                    try:
+                        addr = bitcoin.pubkey_to_address(txin_type, pubkey)
+                    except descriptor.NotLegacySinglesigScriptType as e:
+                        raise UserFacingException(
+                            _("Importing individual private keys of type '{}' is not supported.").format(txin_type),
+                        ) from e
                     addresses[addr] = {'type': txin_type, 'pubkey': pubkey}
             elif 'address_list' in data:
                 for addr in data['address_list'].split():
@@ -736,7 +745,7 @@ class NewWalletWizard(KeystoreWizard):
                 self._logger.debug('creating keystore from 2fa seed')
                 k = keystore.from_xprv(data['x1']['xprv'])
             else:
-                raise Exception('unsupported/unknown seed_type %s' % data['seed_type'])
+                raise NotImplementedError('unsupported/unknown seed_type %s' % data['seed_type'])
         elif data['keystore_type'] in ['masterkey', 'masterkeymweb']:
             k = keystore.from_master_key(data['master_key'])
             if data['keystore_type'] == 'masterkeymweb':
@@ -745,28 +754,28 @@ class NewWalletWizard(KeystoreWizard):
                 t1 = xpub_type(k.xpub)
                 if data['wallet_type'] == 'multisig':
                     if t1 not in ['standard', 'p2wsh', 'p2wsh-p2sh']:
-                        raise Exception('wrong key type %s' % t1)
+                        raise UserFacingException(_('Wrong key type {}').format(t1))
                 else:
                     if t1 not in ['standard', 'p2wpkh', 'p2wpkh-p2sh', 'mweb']:
-                        raise Exception('wrong key type %s' % t1)
+                        raise UserFacingException(_('Wrong key type {}').format(t1))
             elif isinstance(k, keystore.Old_KeyStore):
                 pass
             else:
-                raise Exception(f'unexpected keystore type: {type(k)}')
+                raise TypeError(f'unexpected keystore type: {type(k)}')
         elif data['keystore_type'] == 'hardware':
             k = self.hw_keystore(data)
             if isinstance(k, keystore.Xpub):  # has xpub
                 t1 = xpub_type(k.xpub)
                 if data['wallet_type'] == 'multisig':
                     if t1 not in ['standard', 'p2wsh', 'p2wsh-p2sh']:
-                        raise Exception('wrong key type %s' % t1)
+                        raise UserFacingException(_('Wrong key type {}').format(t1))
                 else:
                     if t1 not in ['standard', 'p2wpkh', 'p2wpkh-p2sh', 'mweb']:
-                        raise Exception('wrong key type %s' % t1)
+                        raise UserFacingException(_('Wrong key type {}').format(t1))
             else:
-                raise Exception(f'unexpected keystore type: {type(k)}')
+                raise TypeError(f'unexpected keystore type: {type(k)}')
         else:
-            raise Exception('unsupported/unknown keystore_type %s' % data['keystore_type'])
+            raise NotImplementedError('unsupported/unknown keystore_type %s' % data['keystore_type'])
 
         if data['password']:
             if k and k.may_have_password():
@@ -801,16 +810,16 @@ class NewWalletWizard(KeystoreWizard):
             db.put('use_trustedcoin', True)
         elif data['wallet_type'] == 'multisig':
             if not isinstance(k, keystore.Xpub):
-                raise Exception(f'unexpected keystore(main) type={type(k)} in multisig. not bip32.')
+                raise TypeError(f'unexpected keystore(main) type={type(k)} in multisig. not bip32.')
             k_xpub_type = xpub_type(k.xpub)
             db.put('wallet_type', '%dof%d' % (data['multisig_signatures'], data['multisig_participants']))
             db.put('x1', k.dump())
             for cosigner in data['multisig_cosigner_data']:
                 cosigner_keystore = self.keystore_from_data('multisig', data['multisig_cosigner_data'][cosigner])
                 if not isinstance(cosigner_keystore, keystore.Xpub):
-                    raise Exception(f'unexpected keystore(cosigner) type={type(cosigner_keystore)} in multisig. not bip32.')
+                    raise TypeError(f'unexpected keystore(cosigner) type={type(cosigner_keystore)} in multisig. not bip32.')
                 if k_xpub_type != xpub_type(cosigner_keystore.xpub):
-                    raise Exception('multisig wallet needs to have homogeneous xpub types')
+                    raise UserFacingException(_('Multisig wallet needs to have homogeneous xpub types.'))
                 if data['encrypt'] and cosigner_keystore.may_have_password():
                     cosigner_keystore.update_password(None, data['password'])
                 db.put(f'x{cosigner}', cosigner_keystore.dump())
@@ -835,7 +844,7 @@ class ServerConnectWizard(AbstractWizard):
         self.navmap = {
             'welcome': {
                 'next': lambda d: 'proxy_config' if d['want_proxy'] else 'server_config',
-                'accept': self.do_configure_autoconnect,
+                'accept': lambda d: self.do_enable_autoconnect(d) if d['autoconnect'] else None,
                 'last': lambda d: bool(d['autoconnect'] and not d['want_proxy'])
             },
             'proxy_config': {
@@ -864,23 +873,27 @@ class ServerConnectWizard(AbstractWizard):
     def do_configure_server(self, wizard_data: dict):
         self._logger.debug(f'configuring server: {wizard_data!r}')
         net_params = self._daemon.network.get_parameters()
-        server = ''
+        server = None
         oneserver = wizard_data.get('one_server', False)
         if not wizard_data['autoconnect']:
-            try:
-                server = ServerAddr.from_str_with_inference(wizard_data['server'])
-                if not server:
-                    raise Exception('failed to parse server %s' % wizard_data['server'])
-            except Exception:
-                return
-        net_params = net_params._replace(server=server, auto_connect=wizard_data['autoconnect'], oneserver=oneserver)
+            server = ServerAddr.from_str_with_inference(wizard_data.get('server', ''))
+            if not server:
+                self._logger.warn('failed to parse server %s' % wizard_data.get('server', ''))
+                return  # Network._start() will set autoconnect and default server
+        net_params = net_params._replace(
+            server=server or net_params.server,
+            auto_connect=wizard_data['autoconnect'],
+            oneserver=oneserver,
+        )
         self._daemon.network.run_from_another_thread(self._daemon.network.set_parameters(net_params))
 
-    def do_configure_autoconnect(self, wizard_data: dict):
-        self._logger.debug(f'configuring autoconnect: {wizard_data!r}')
+    def do_enable_autoconnect(self, wizard_data: dict):
+        # NETWORK_AUTO_CONNECT will only get explicitly set True, 'autoconnect': False means
+        # the user requested manual server configuration
+        self._logger.debug(f'enabling autoconnect: {wizard_data!r}')
+        assert wizard_data.get('autoconnect'), wizard_data
         if self._daemon.config.cv.NETWORK_AUTO_CONNECT.is_modifiable():
-            if wizard_data.get('autoconnect') is not None:
-                self._daemon.config.NETWORK_AUTO_CONNECT = wizard_data.get('autoconnect')
+            self._daemon.config.NETWORK_AUTO_CONNECT = True
 
     def start(self, *, start_viewstate: WizardViewState = None) -> WizardViewState:
         self.reset()

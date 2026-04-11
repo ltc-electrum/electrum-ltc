@@ -7,8 +7,10 @@ from electrum import constants
 from electrum.network import ProxySettings
 from electrum.interface import ServerAddr
 from electrum.fee_policy import FEERATE_DEFAULT_RELAY
+from electrum.util import event_listener
 
-from .util import QtEventListener, event_listener
+from electrum.gui.common_qt.util import QtEventListener
+
 from .qeconfig import QEConfig
 from .qeserverlistmodel import QEServerListModel
 
@@ -205,6 +207,10 @@ class QENetwork(QObject, QtEventListener):
     @pyqtProperty(str, notify=statusChanged)
     def server(self):
         return self._server
+
+    @pyqtSlot(str, result=bool)
+    def isValidServerAddress(self, server: str) -> bool:
+        return ServerAddr.from_str_with_inference(server) is not None
 
     @pyqtSlot(str, bool, bool)
     def setServerParameters(self, server_str: str, auto_connect: bool, one_server: bool):

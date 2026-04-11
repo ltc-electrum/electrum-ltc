@@ -51,7 +51,7 @@ import electrum_ecc as ecc
 import electrum
 from electrum.gui import messages
 from electrum import (keystore, constants, util, bitcoin, commands,
-                      paymentrequest, lnutil)
+                      lnutil)
 from electrum.bitcoin import COIN, is_address, DummyAddress
 from electrum.plugin import run_hook
 from electrum.i18n import _
@@ -59,7 +59,7 @@ from electrum.util import (format_time, UserCancelled, profiler, bfh, InvalidPas
                            UserFacingException, get_new_wallet_name,
                            send_exception_to_crash_reporter,
                            AddTransactionException, os_chmod, UI_UNIT_NAME_TXSIZE_VBYTES,
-                           is_valid_email, ChoiceItem)
+                           is_valid_email, ChoiceItem, event_listener)
 from electrum.bip21 import BITCOIN_BIP21_URI_SCHEME
 from electrum.payment_identifier import PaymentIdentifier
 from electrum.invoices import PR_PAID, Invoice
@@ -74,11 +74,13 @@ from electrum.exchange_rate import FxThread
 from electrum.simple_config import SimpleConfig
 from electrum.logging import Logger
 from electrum.lntransport import extract_nodeid, ConnStringFormatError
-from electrum.lnaddr import lndecode
+from electrum.lnaddr import lndecode, LnAddr
 from electrum.submarine_swaps import SwapServerTransport, NostrTransport
 from electrum.fee_policy import FeePolicy
 import electrum.mwebd as mwebd
 from electrum.mwebd_pb2 import StatusRequest
+
+from electrum.gui.common_qt.util import TaskThread, QtEventListener, qt_event_listener
 
 from .rate_limiter import rate_limited
 from .exception_window import Exception_Hook
@@ -93,8 +95,7 @@ from .util import (read_QIcon, ColorScheme, text_dialog, icon_path, WaitingDialo
                    CloseButton, MessageBoxMixin, EnterButton, import_meta_gui, export_meta_gui,
                    filename_field, address_field, char_width_in_lineedit, webopen,
                    TRANSACTION_FILE_EXTENSION_FILTER_ANY, MONOSPACE_FONT,
-                   getOpenFileName, getSaveFileName, ShowQRLineEdit, QtEventListener, qt_event_listener,
-                   event_listener, scan_qr_from_screenshot)
+                   getOpenFileName, getSaveFileName, ShowQRLineEdit, scan_qr_from_screenshot)
 from .wizard.wallet import WIF_HELP_TEXT
 from .history_list import HistoryList, HistoryModel
 from .update_checker import UpdateCheck, UpdateCheckThread
@@ -105,8 +106,6 @@ from .qrreader import scan_qrcode_from_camera
 from .swap_dialog import SwapDialog, InvalidSwapParameters
 from .balance_dialog import (BalanceToolButton, COLOR_FROZEN, COLOR_UNMATURED, COLOR_UNCONFIRMED, COLOR_CONFIRMED,
                              COLOR_LIGHTNING, COLOR_FROZEN_LIGHTNING)
-
-from electrum.gui.common_qt.util import TaskThread
 
 if TYPE_CHECKING:
     from . import ElectrumGui
@@ -479,7 +478,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             self.need_update.set()
 
     @event_listener
-    def on_event_new_transaction(self, wallet, tx):
+    def on_event_new_transaction(self, wallet: Abstract_Wallet, tx: Transaction):
         if wallet == self.wallet:
             self.tx_notification_queue.put(tx)
             self.need_update.set()
@@ -742,7 +741,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         return True
 
     def update_recently_opened_menu(self):
-        recent = self.config.RECENTLY_OPEN_WALLET_FILES
+        recent = self.config.RECENTLY_OPEN_WALLET_FILES or []
         self.recently_visited_menu.clear()
         for i, k in enumerate(recent):
             b = os.path.basename(k)
@@ -853,13 +852,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             about_action.triggered.connect(self.show_about)
             about_action.setMenuRole(QAction.MenuRole.AboutRole)  # make sure OS recognizes it as "About"
             self.help_menu.addAction(about_action)
+        self.help_menu.addAction(_("&Changelog"), lambda: webopen(constants.RELEASE_NOTES_URL))
         self.help_menu.addAction(_("&Check for updates"), self.show_update_check)
         self.help_menu.addAction(_("&Official website"), lambda: webopen("https://ltc-electrum.github.io"))
         self.help_menu.addSeparator()
         self.help_menu.addAction(_("&Documentation"), lambda: webopen("http://docs.electrum.org/")).setShortcut(QKeySequence.StandardKey.HelpContents)
         self.help_menu.addAction(_("&Report Bug"), self.show_report_bug)
         self.help_menu.addSeparator()
-        self.help_menu.addAction(_("&Donate to server"), self.donate_to_server)
+        if self.network:
+            self.help_menu.addAction(_("&Donate to server"), self.donate_to_server)
 
         run_hook('init_menubar', self)
         self.setMenuBar(menubar)
@@ -889,7 +890,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             def fetch_bitcoin_paper():
                 s = self._fetch_tx_from_network("54e48e5f5c656b26c3bca14a8c95aa583d07ebe84dde3b7dd4a78f4e4186e713")
                 if not s:
-                    return
+                    raise concurrent.futures.CancelledError
                 s = s.split("0100000000000000")[1:-1]
                 out = ''.join(x[6:136] + x[138:268] + x[270:400] if len(x) > 136 else x[6:] for x in s)[16:-20]
                 with open(filename, 'wb') as f:
@@ -933,22 +934,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
                 txns.append(self.tx_notification_queue.get_nowait())
             except queue.Empty:
                 break
-        # Combine the transactions if there are at least three
-        if len(txns) >= 3:
-            total_amount = 0
-            for tx in txns:
-                tx_wallet_delta = self.wallet.get_wallet_delta(tx)
-                if not tx_wallet_delta.is_relevant:
-                    continue
-                total_amount += tx_wallet_delta.delta
-            self.notify(_("{} new transactions: Total amount received in the new transactions {}")
-                        .format(len(txns), self.format_amount_and_units(total_amount)))
-        else:
-            for tx in txns:
-                tx_wallet_delta = self.wallet.get_wallet_delta(tx)
-                if not tx_wallet_delta.is_relevant:
-                    continue
-                self.notify(_("New transaction: {}").format(self.format_amount_and_units(tx_wallet_delta.delta)))
+
+        for notification in self.wallet.get_user_notifications_for_new_txns(txns):
+            self.notify(notification)
 
     def notify(self, message):
         if self.tray:
@@ -1286,9 +1274,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
 
     def run_swap_dialog(
         self,
+        *,
         is_reverse: Optional[bool] = None,
         recv_amount_sat_or_max: Optional[Union[int, str]] = None,
         channels: Optional[Sequence['Channel']] = None,
+        get_coins: Optional[Callable[..., Sequence[PartialTxInput]]] = None,
     ) -> bool:
         if not self.network:
             self.show_error(_("You are offline."))
@@ -1312,7 +1302,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
                 transport,
                 is_reverse=is_reverse,
                 recv_amount_sat_or_max=recv_amount_sat_or_max,
-                channels=channels
+                channels=channels,
+                get_coins=get_coins
             )
             try:
                 return d.run(transport)
@@ -1506,17 +1497,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         msg = _('Signing transaction...')
         WaitingDialog(self, msg, task, on_success, on_failure)
 
-    def mktx_for_open_channel(self, *, funding_sat, node_id):
+    def mktx_for_open_channel(self, *, funding_sat, node_id, get_coins=None):
         def make_tx(fee_policy, *, confirmed_only=False, base_tx=None):
             assert base_tx is None
+            coins = get_coins() if get_coins else self.get_coins(nonlocal_only=True, confirmed_only=confirmed_only)
             return self.wallet.lnworker.mktx_for_open_channel(
-                coins=self.get_coins(nonlocal_only=True, confirmed_only=confirmed_only),
+                coins=coins,
                 funding_sat=funding_sat,
                 node_id=node_id,
                 fee_policy=fee_policy)
         return make_tx
 
-    def open_channel(self, connect_str, funding_sat, push_amt):
+    def open_channel(self, connect_str, funding_sat, *, push_amt=0, get_coins=None):
         try:
             node_id, rest = extract_nodeid(connect_str)
         except ConnStringFormatError as e:
@@ -1527,7 +1519,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             if not self.question(msg):
                 return
         # we need to know the fee before we broadcast, because the txid is required
-        make_tx = self.mktx_for_open_channel(funding_sat=funding_sat, node_id=node_id)
+        make_tx = self.mktx_for_open_channel(funding_sat=funding_sat, node_id=node_id, get_coins=get_coins)
         funding_tx, _, _ = self.confirm_tx_dialog(make_tx, funding_sat, context=TxEditorContext.CHANNEL_FUNDING)
         if not funding_tx:
             return
@@ -1717,32 +1709,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         if invoice.exp:
             grid.addWidget(QLabel(_("Expires") + ':'), 4, 0)
             grid.addWidget(QLabel(format_time(invoice.exp + invoice.time)), 4, 1)
-        if invoice.bip70:
-            pr = paymentrequest.PaymentRequest(bytes.fromhex(invoice.bip70))
-            Network.run_from_another_thread(pr.verify())
-            grid.addWidget(QLabel(_("Requestor") + ':'), 5, 0)
-            grid.addWidget(QLabel(pr.get_requestor()), 5, 1)
-            grid.addWidget(QLabel(_("Signature") + ':'), 6, 0)
-            grid.addWidget(QLabel(pr.get_verify_status()), 6, 1)
-            def do_export():
-                name = pr.get_name_for_export() or "payment_request"
-                name = f"{name}.bip70"
-                fn = getSaveFileName(
-                    parent=self,
-                    title=_("Save invoice to file"),
-                    filename=name,
-                    filter="*.bip70",
-                    config=self.config,
-                )
-                if not fn:
-                    return
-                with open(fn, 'wb') as f:
-                    data = f.write(pr.raw)
-                self.show_message(_('BIP70 invoice saved as {}').format(fn))
-            exportButton = EnterButton(_('Export'), do_export)
-            buttons = Buttons(exportButton, CloseButton(d))
-        else:
-            buttons = Buttons(CloseButton(d))
+        buttons = Buttons(CloseButton(d))
         vbox.addLayout(grid)
         vbox.addLayout(buttons)
         d.exec()
@@ -1784,7 +1751,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
         grid.addWidget(QLabel(_('Text') + ':'), 8, 0)
         grid.addWidget(invoice_e, 8, 1)
         r_tags = lnaddr.get_routing_info('r')
-        r_tags = '\n'.join(repr([(x[0].hex(), format_short_id(x[1]), x[2], x[3]) for x in r]) for r in r_tags)
+        r_tags = '\n'.join(repr(r) for r in LnAddr.format_bolt11_routing_info_as_human_readable(r_tags))
         routing_e = QTextEdit(str(r_tags))
         routing_e.setReadOnly(True)
         grid.addWidget(QLabel(_("Routing Hints") + ':'), 9, 0)
@@ -2063,7 +2030,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger, QtEventListener):
             msg = _('Do you want to create your first channel?') + '\n\n' + messages.MSG_LIGHTNING_WARNING
             if not self.question(msg):
                 return
-        d = NewChannelDialog(self, amount_sat, min_amount_sat)
+        d = NewChannelDialog(self, amount_sat=amount_sat, min_amount_sat=min_amount_sat)
         return d.run()
 
     def new_contact_dialog(self):

@@ -281,7 +281,7 @@ class ChannelsList(MyTreeView):
                 menu.addAction(_("Delete"), lambda: self.remove_channel_backup(channel_id))
             else:
                 menu.addAction(_("Delete"), lambda: self.remove_channel(channel_id))
-        menu.exec(self.viewport().mapToGlobal(position))
+        self.open_menu(menu, position)
 
     @QtCore.pyqtSlot(Abstract_Wallet, AbstractChannel)
     def do_update_single_row(self, wallet: Abstract_Wallet, chan: AbstractChannel):
@@ -440,12 +440,6 @@ class ChanFeatNoOnchainBackup(ChannelFeature):
         return read_QIcon("cloud_no")
 
 
-class ChanFeatAnchors(ChannelFeature):
-    def tooltip(self) -> str:
-        return _("This channel uses anchor outputs.")
-    def icon(self) -> QIcon:
-        return read_QIcon("anchor")
-
 
 class ChannelFeatureIcons:
 
@@ -467,8 +461,6 @@ class ChannelFeatureIcons:
                 feats.append(ChanFeatTrampoline())
             if not chan.has_onchain_backup():
                 feats.append(ChanFeatNoOnchainBackup())
-            if chan.has_anchors():
-                feats.append(ChanFeatAnchors())
         return ChannelFeatureIcons(feats)
 
     def paint(self, painter: QPainter, rect: QRect) -> None:

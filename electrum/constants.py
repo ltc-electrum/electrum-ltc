@@ -57,6 +57,7 @@ def create_fallback_node_list(fallback_nodes_dict: dict[str, dict]) -> List[LNPe
 
 GIT_REPO_URL = "https://github.com/ltc-electrum/electrum-ltc"
 GIT_REPO_ISSUES_URL = "https://github.com/ltc-electrum/electrum-ltc/issues"
+RELEASE_NOTES_URL = "https://raw.githubusercontent.com/ltc-electrum/electrum-ltc/refs/heads/master/RELEASE-NOTES"
 BIP39_WALLET_FORMATS = read_json('bip39_wallet_formats.json')
 
 
