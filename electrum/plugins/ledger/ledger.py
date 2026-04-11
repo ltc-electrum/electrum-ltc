@@ -19,6 +19,7 @@ from electrum.keystore import Hardware_KeyStore
 from electrum.logging import get_logger
 from electrum.mwebd_pb2 import LedgerApdu
 from electrum.plugin import Device, runs_in_hwd_thread
+from electrum.storage import get_derivation_used_for_hw_device_encryption
 from electrum.transaction import PartialTransaction, Transaction, PartialTxInput
 from electrum.util import bfh, UserCancelled, UserFacingException, versiontuple
 from electrum.wallet import Standard_Wallet
@@ -477,6 +478,8 @@ class Ledger_Client_Legacy(Ledger_Client):
             raise UserFacingException(MSG_NEEDS_FW_UPDATE_SEGWIT)
         if xtype in ['p2wpkh-p2sh', 'p2wsh-p2sh'] and not self.supports_segwit():
             raise UserFacingException(MSG_NEEDS_FW_UPDATE_SEGWIT)
+        if bip32_path == "m/0'" or bip32_path == get_derivation_used_for_hw_device_encryption():
+            bip32_path = "m/44'/2'" + bip32_path[1:]
         bip32_path = bip32.normalize_bip32_derivation(bip32_path, hardened_char="'")
         bip32_intpath = bip32.convert_bip32_strpath_to_intpath(bip32_path)
         bip32_path = bip32_path[2:]  # cut off "m/"
