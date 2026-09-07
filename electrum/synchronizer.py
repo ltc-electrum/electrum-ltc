@@ -99,7 +99,7 @@ class SynchronizerBase(NetworkJobOnDefaultServer):
 
     async def _on_address_status(self, addr: str, status: Optional[str]):
         """Handle the change of the status of an address.
-        Should remove addr from self._handling_addr_statuses when done.
+        Should remove addr from _handling_addr_statuses when done.
         """
         raise NotImplementedError()  # implemented by subclasses
 
@@ -196,10 +196,13 @@ class Synchronizer(SynchronizerBase):
         finally:
             self._handling_addr_statuses.discard(addr)
         result = await self._maybe_request_history_for_addr(addr, ann_status=status)
-        hist = list(map(lambda item: (item['tx_hash'], item['height']), result))
+        hist = [(item['tx_hash'], item['height']) for item in result]
         # tx_fees
-        tx_fees = [(item['tx_hash'], item.get('fee')) for item in result]
-        tx_fees = dict(filter(lambda x:x[1] is not None, tx_fees))
+        tx_fees = {
+            item['tx_hash']: item['fee']
+            for item in result
+            if item.get('fee') is not None
+        }
         # Check that the status corresponds to what was announced
         if history_status(hist) != status:
             # could happen naturally if history changed between getting status and history (race)
