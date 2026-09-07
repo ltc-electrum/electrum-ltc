@@ -99,7 +99,7 @@ class SynchronizerBase(NetworkJobOnDefaultServer):
 
     async def _on_address_status(self, addr: str, status: Optional[str]):
         """Handle the change of the status of an address.
-        Should remove addr from _handling_addr_statuses when done.
+        Should remove addr from self._handling_addr_statuses when done.
         """
         raise NotImplementedError()  # implemented by subclasses
 
