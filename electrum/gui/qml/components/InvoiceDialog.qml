@@ -10,7 +10,7 @@ import "controls"
 ElDialog {
     id: dialog
 
-    property Invoice invoice
+    property var invoice  // type Invoice
     property bool payImmediately: false
     property string broadcastTxid
 
@@ -24,7 +24,7 @@ ElDialog {
 
     property bool _canMax: invoice.invoiceType == Invoice.OnchainInvoice
 
-    property Amount _invoice_amount: invoice.amount
+    property var _invoice_amount: invoice.amount  // type: Amount
 
     ColumnLayout {
         anchors.fill: parent
@@ -65,8 +65,11 @@ ElDialog {
                                     : invoice.status == Invoice.Unpaid && invoice.expiration > 0
                                         ? invoice.canPay
                                             ? InfoTextArea.IconStyle.Pending
-                                            : InfoTextArea.IconStyle.Error
+                                            : invoice.userinfoStatus == Invoice.Warning
+                                                ? InfoTextArea.IconStyle.Warn
+                                                : InfoTextArea.IconStyle.Error
                                         : InfoTextArea.IconStyle.Info
+                    backgroundColor: constants.darkerDialogBackground
                 }
 
                 Label {
@@ -77,7 +80,7 @@ ElDialog {
                     color: Material.accentColor
                 }
 
-                TextHighlightPane {
+                DialogHighlightPane {
                     Layout.columnSpan: 2
                     Layout.fillWidth: true
                     visible: invoice.invoiceType == Invoice.OnchainInvoice
@@ -114,7 +117,7 @@ ElDialog {
                     color: Material.accentColor
                 }
 
-                TextHighlightPane {
+                DialogHighlightPane {
                     Layout.columnSpan: 2
                     Layout.fillWidth: true
 
@@ -137,7 +140,7 @@ ElDialog {
                     color: Material.accentColor
                 }
 
-                TextHighlightPane {
+                DialogHighlightPane {
                     id: amountContainer
 
                     Layout.columnSpan: 2
@@ -198,7 +201,6 @@ ElDialog {
                                 id: fiatValue
                                 Layout.alignment: Qt.AlignRight
                                 visible: Daemon.fx.enabled && !_invoice_amount.isMax && !_invoice_amount.isEmpty
-                                text: Daemon.fx.fiatValue(invoice.amount, false)
                                 font.pixelSize: constants.fontSizeMedium
                                 color: constants.mutedForeground
                             }
@@ -294,6 +296,8 @@ ElDialog {
                                 id: maxAmountMessage
                                 visible: amountMax.checked && text
                                 compact: true
+                                backgroundColor: constants.darkerDialogBackground
+
                                 Connections {
                                     target: invoice
                                     function onMaxAmountMessage(message) {
@@ -316,11 +320,11 @@ ElDialog {
                     Layout.columnSpan: 2
                     Layout.topMargin: constants.paddingSmall
                     visible: invoice.invoiceType == Invoice.LightningInvoice
-                    text: qsTr('Remote Pubkey')
+                    text: qsTr('Recipient Pubkey')
                     color: Material.accentColor
                 }
 
-                TextHighlightPane {
+                DialogHighlightPane {
                     Layout.columnSpan: 2
                     Layout.fillWidth: true
 
@@ -358,7 +362,7 @@ ElDialog {
                     color: Material.accentColor
                 }
 
-                TextHighlightPane {
+                DialogHighlightPane {
                     Layout.columnSpan: 2
                     Layout.fillWidth: true
 
@@ -401,7 +405,7 @@ ElDialog {
                     visible: 'r' in invoice.lnprops && invoice.lnprops.r.length
                     model: invoice.lnprops.r
 
-                    TextHighlightPane {
+                    DialogHighlightPane {
                         Layout.columnSpan: 2
                         Layout.fillWidth: true
 
@@ -428,7 +432,7 @@ ElDialog {
                     color: Material.accentColor
                 }
 
-                TextHighlightPane {
+                DialogHighlightPane {
                     Layout.columnSpan: 2
                     Layout.fillWidth: true
                     visible: invoice.invoiceType == Invoice.LightningInvoice && invoice.address
@@ -458,7 +462,7 @@ ElDialog {
             }
         }
 
-        ButtonContainer {
+        DialogButtonContainer {
             Layout.fillWidth: true
 
             FlatButton {
@@ -498,12 +502,17 @@ ElDialog {
 
     }
 
+    function setFiatValue() {
+        fiatValue.text = Daemon.fx.fiatValue(invoice.amount, false)
+    }
+
     Component.onCompleted: {
-        if (invoice.amount.isEmpty && !invoice.status == Invoice.Expired) {
+        if (invoice.amount.isEmpty && invoice.status != Invoice.Expired) {
             amountContainer.editmode = true
         } else if (invoice.amount.isMax) {
             amountMax.checked = true
         }
+        setFiatValue()
         if (payImmediately) {
             if (invoice.canPay) {
                 doPay()
@@ -523,6 +532,11 @@ ElDialog {
                 successdialog.open()
             }
         }
+    }
+
+    Connections {
+        target: Daemon.fx
+        function onQuotesUpdated() { setFiatValue() }
     }
 
     FontMetrics {

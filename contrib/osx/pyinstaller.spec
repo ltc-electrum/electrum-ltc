@@ -53,6 +53,7 @@ datas += collect_data_files('bitbox02')
 
 # some deps rely on importlib metadata
 datas += copy_metadata('slip10')  # from trezor->slip10
+datas += copy_metadata('trezor')
 
 # Exclude parts of Qt that we never use. Reduces binary size by tens of MBs. see #4815
 excludes = [
@@ -139,7 +140,7 @@ app = BUNDLE(
         'CFBundleURLTypes':
             [{
                 'CFBundleURLName': 'litecoin',
-                'CFBundleURLSchemes': ['litecoin', 'lightning', ],
+                'CFBundleURLSchemes': ['litecoin', 'lightningltc', 'lnltcurlp', 'lnltcurlw', ],
             }],
         'LSMinimumSystemVersion': '11',
         'NSCameraUsageDescription': 'Electrum would like to access the camera to scan for QR codes',

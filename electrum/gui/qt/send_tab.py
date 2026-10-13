@@ -24,7 +24,7 @@ from electrum.transaction import Transaction, PartialTxInput, PartialTxOutput
 from electrum.network import TxBroadcastError, BestEffortRequestFailed
 from electrum.payment_identifier import (PaymentIdentifierType, PaymentIdentifier,
                                          invoice_from_payment_identifier,
-                                         PaymentIdentifierState)
+                                         PaymentIdentifierState, outputs_to_multiline_csv)
 from electrum.submarine_swaps import SwapServerError
 from electrum.fee_policy import FeePolicy, FixedFeePolicy
 from electrum.lnurl import LNURL3Data, request_lnurl_withdraw_callback, LNURLError
@@ -213,11 +213,10 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
         if not pi:
             self.send_button.setEnabled(False)
             return
-        pi_error = pi.is_error() if pi.is_valid() else False
         is_spk_script = pi.type == PaymentIdentifierType.SPK and not pi.spk_is_address
         valid_amount = is_spk_script or bool(self.amount_e.get_amount())
         ready_to_finalize = not pi.need_resolve()
-        self.send_button.setEnabled(pi.is_valid() and not pi_error and valid_amount and ready_to_finalize)
+        self.send_button.setEnabled(self._is_pi_usable(pi) and valid_amount and ready_to_finalize)
 
     def do_paste(self):
         self.logger.debug('do_paste')
@@ -468,16 +467,18 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
         elif lock_max and self.amount_e.text() == '!':
             self.amount_e.clear()
 
-        pi_unusable = pi.is_error() or (not self.wallet.has_lightning() and not pi.is_onchain())
+        pi_usable = self._is_pi_usable(pi)
         is_spk_script = pi.type == PaymentIdentifierType.SPK and not pi.spk_is_address
-
         amount_valid = is_spk_script or bool(self.amount_e.get_amount())
 
-        self.send_button.setEnabled(not pi_unusable and amount_valid and not pi.has_expired())
-        self.save_button.setEnabled(not pi_unusable and not is_spk_script and not pi.has_expired() and \
+        self.send_button.setEnabled(pi_usable and amount_valid and not pi.has_expired())
+        self.save_button.setEnabled(pi_usable and not is_spk_script and not pi.has_expired() and \
                                     pi.type not in [PaymentIdentifierType.LNURLP, PaymentIdentifierType.LNADDR])
 
         self.invoice_error.setText(_('Expired') if pi.has_expired() else '')
+
+    def _is_pi_usable(self, pi: 'PaymentIdentifier') -> bool:
+        return pi.is_valid() and not pi.is_error() and (self.wallet.has_lightning() or pi.is_onchain())
 
     def _handle_payment_identifier(self):
         self.update_fields()
@@ -493,6 +494,10 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
     def on_resolve_done(self, pi: 'PaymentIdentifier'):
         # TODO: resolve can happen while typing, we don't want message dialogs to pop up
         # currently we don't set error for emaillike recipients to avoid just that
+        if pi != self.payto_e.payment_identifier:
+            self.logger.debug(f"stale resolve done")
+            return
+
         self.logger.debug('payment identifier resolve done')
         self.spinner.setVisible(False)
         if pi.error:
@@ -588,6 +593,11 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
     def do_edit_invoice(self, invoice: 'Invoice'):  # FIXME broken
         assert not bool(invoice.get_amount_sat())
         text = invoice.lightning_invoice if invoice.is_lightning() else invoice.get_address()
+        if len(invoice.get_outputs()) > 1 or text is None:
+            # invoice is not standard single-address-out, it's one of
+            # - multiple outputs (invoice.get_address() only returns output[0])
+            # - single output is script, not address
+            text = outputs_to_multiline_csv(invoice.get_outputs(), self.config)
         self.set_payment_identifier(text)
         self.amount_e.setFocus()
         # disable save button, because it would create a new invoice
@@ -673,7 +683,8 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
             can_pay_with_swap = False
             can_rebalance = False
             if lnworker:
-                can_pay_with_new_channel = lnworker.suggest_funding_amount(amount_sat, coins=coins)
+                if self.wallet.can_have_lightning():  # old wallets cannot open new channels
+                    can_pay_with_new_channel = lnworker.suggest_funding_amount(amount_sat, coins=coins)
                 can_pay_with_swap = lnworker.suggest_swap_to_send(amount_sat, coins=coins)
                 rebalance_suggestion = lnworker.suggest_rebalance_to_send(amount_sat)
                 can_rebalance = bool(rebalance_suggestion) and self.window.num_tasks() == 0
@@ -778,11 +789,15 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
                 coro = sm.wait_for_htlcs_and_broadcast(
                     transport=transport, swap=swap, invoice=tx.swap_invoice, tx=tx)
                 try:
-                    funding_txid = self.window.run_coroutine_dialog(coro, _('Awaiting lightning payment...'))
+                    self.window.run_coroutine_dialog(coro, _('Awaiting lightning payment...'))
                 except UserCancelled:
-                    sm.cancel_normal_swap(swap)
+                    if sm.cancel_normal_swap(swap):
+                        return
+                self.window.on_swap_result(swap.funding_txid, is_reverse=False)
+                if not swap._payment_pending:
+                    # we decided not to broadcast the funding tx, so we must not do it below either
+                    # note: swap.funding_txid can be influenced by the counterparty so it is not a sufficient check here
                     return
-                self.window.on_swap_result(funding_txid, is_reverse=False)
 
         def broadcast_thread():
             # non-GUI thread
@@ -809,7 +824,6 @@ class SendTab(QWidget, MessageBoxMixin, Logger):
                 success, msg = result
                 if success:
                     parent.show_message(_('Payment sent.') + '\n' + msg)
-                    self.invoice_list.update()
                     self.wallet.set_broadcasting(tx, broadcasting_status=PR_BROADCAST)
                 else:
                     msg = msg or ''

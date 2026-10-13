@@ -12,13 +12,16 @@ import aiohttp.client_exceptions
 
 from electrum import segwit_addr, util
 from electrum.segwit_addr import bech32_decode, Encoding, convertbits, bech32_encode
-from electrum.lnaddr import LnDecodeException, LnEncodeException
+from electrum.bolt11 import BOLT11DecodeException, BOLT11EncodeException
 from electrum.network import Network
 from electrum.logging import get_logger
 from electrum.i18n import _
 
 
 _logger = get_logger(__name__)
+
+
+SUPPORTED_LNURL_SCHEMES = ('lnurlp', 'lnurlw')
 
 
 class LNURLError(Exception): pass
@@ -44,11 +47,11 @@ def decode_lnurl(lnurl: str) -> str:
     hrp = decoded_bech32.hrp
     data = decoded_bech32.data
     if decoded_bech32.encoding is None:
-        raise LnDecodeException("Bad bech32 checksum")
+        raise BOLT11DecodeException("Bad bech32 checksum")
     if decoded_bech32.encoding != Encoding.BECH32:
-        raise LnDecodeException("Bad bech32 encoding: must be using vanilla BECH32")
+        raise BOLT11DecodeException("Bad bech32 encoding: must be using vanilla BECH32")
     if not hrp.startswith("lnurl"):
-        raise LnDecodeException("Does not start with lnurl")
+        raise BOLT11DecodeException("Does not start with lnurl")
     data = convertbits(data, 5, 8, False)
     url = bytes(data).decode("utf-8")
     return url
@@ -59,7 +62,7 @@ def encode_lnurl(url: str) -> str:
     try:
         url = url.encode("utf-8")
     except UnicodeError as e:
-        raise LnEncodeException("invalid url") from e
+        raise BOLT11EncodeException("invalid url") from e
     bech32_data = convertbits(url, 8, 5, True)
     assert bech32_data
     lnurl = bech32_encode(
@@ -245,14 +248,26 @@ async def callback_lnurl(url: str, params: dict) -> dict:
     status = response.get("status")
     if status and status == "ERROR":
         raise UntrustedLNURLError(f"LNURL request encountered an error: {response.get('reason', '<missing reason>')}")
+    # TODO: implement LUD-09 (https://github.com/lnurl/luds/blob/luds/09.md), e.g. useful for paying offline devices
+    if 'successAction' in response:
+        raise LNURLError("successAction are not yet supported by Electrum.")
     # TODO: handling of specific errors (validate fields, e.g. for lnurl6)
     return response
+
+
+LN_ADDRESS_RE = re.compile(
+    r"[a-zA-Z0-9\-_][a-zA-Z0-9\-_.]*(\+[a-zA-Z0-9\-_.]+)?"          # username
+    r"@"
+    r"[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)*"       # domain labels
+    r"\.[a-zA-Z]{2,}"                          # tld (alphabetic, so no bare IPv4)
+)
 
 
 def lightning_address_to_url(address: str) -> Optional[str]:
     """Converts an email-type lightning address to a decoded lnurl.
     see https://github.com/fiatjaf/lnurl-rfc/blob/luds/16.md
     """
-    if re.match(r"^[^@]+@[^.@]+(\.[^.@]+)+$", address):
+    if LN_ADDRESS_RE.fullmatch(address):
         username, domain = address.split("@")
-        return f"https://{domain}/.well-known/lnurlp/{username}"
+        scheme = 'http' if domain.endswith('.onion') else 'https'
+        return f"{scheme}://{domain}/.well-known/lnurlp/{username}"

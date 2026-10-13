@@ -52,7 +52,7 @@ from .bitcoin import (
 )
 from .crypto import sha256d, sha256
 from .logging import get_logger
-from .util import ShortID, OldTaskGroup
+from .util import ShortID, OldTaskGroup, TxMinedInfo
 from .descriptor import Descriptor, MissingSolutionPiece, create_dummy_descriptor_from_address, DUMMY_DER_SIG
 
 if TYPE_CHECKING:
@@ -333,9 +333,9 @@ class TxInput:
 
     def __init__(self, *,
                  prevout: TxOutpoint,
-                 script_sig: bytes = None,
+                 script_sig: bytes | None = None,
                  nsequence: int = 0xffffffff - 1,
-                 witness: bytes = None,
+                 witness: bytes | None = None,
                  is_coinbase_output: bool = False,
                  is_pegout: bool = False):
         self.prevout = prevout
@@ -371,9 +371,17 @@ class TxInput:
             return self.nsequence & 0xffff
         return None
 
+    def set_mined_info(self, info: TxMinedInfo) -> None:
+        self.block_height = info.height()
+        self.block_txpos = info.txpos
+
+    def has_short_id(self) -> bool:
+        return (self.block_height is not None and self.block_height > 0
+                and self.block_txpos is not None and self.block_txpos >= 0)
+
     @property
     def short_id(self):
-        if self.block_txpos is not None and self.block_txpos >= 0:
+        if self.has_short_id():
             return ShortID.from_components(self.block_height, self.block_txpos, self.prevout.out_idx)
         else:
             return self.prevout.short_name()
@@ -389,7 +397,7 @@ class TxInput:
         # note that tx might be a PartialTransaction
         # serialize and de-serialize tx now. this might e.g. convert a complete PartialTx to a Tx
         tx_hash = tx.txid()
-        tx = tx_from_any(str(tx))
+        tx = tx_from_any(str(tx), sanitize=False)
         tx._cached_txid = tx_hash
         # 'utxo' field should not be a PSBT:
         if not tx.is_complete():
@@ -452,7 +460,7 @@ class TxInput:
             d['witness'] = [x.hex() for x in self.witness_elements()]
         return d
 
-    def serialize_to_network(self, *, script_sig: bytes = None) -> bytes:
+    def serialize_to_network(self, *, script_sig: bytes | None = None) -> bytes:
         if script_sig is None:
             script_sig = self.script_sig
         # Prev hash and index
@@ -606,7 +614,7 @@ class BCDataStream(object):
 
         return self.read_bytes(length).decode(encoding)
 
-    def write_string(self, string, encoding='ascii'):
+    def write_string(self, string: str | bytes | bytearray, encoding='ascii'):
         string = to_bytes(string, encoding)
         # Length-encoded as with read-string
         self.write_compact_size(len(string))
@@ -665,22 +673,12 @@ class BCDataStream(object):
         except IndexError as e:
             raise SerializationError("attempt to read past end of buffer") from e
 
-    def write_compact_size(self, size):
-        if size < 0:
-            raise SerializationError("attempt to write size < 0")
-        elif size < 253:
-            self.write(bytes([size]))
-        elif size < 2**16:
-            self.write(b'\xfd')
-            self._write_num('<H', size)
-        elif size < 2**32:
-            self.write(b'\xfe')
-            self._write_num('<I', size)
-        elif size < 2**64:
-            self.write(b'\xff')
-            self._write_num('<Q', size)
-        else:
-            raise Exception(f"size {size} too large for compact_size")
+    def write_compact_size(self, size: int) -> None:
+        try:
+            compact_size = var_int(size)
+        except OverflowError as e:
+            raise SerializationError(f"size {size} outside valid range for compact_size") from e
+        self.write(compact_size)
 
     def _read_num(self, format):
         try:
@@ -944,8 +942,8 @@ class Transaction:
             self._cached_network_ser = raw.hex()
         else:
             raise Exception(f"cannot initialize transaction from {raw}")
-        self._inputs = None  # type: List[TxInput]
-        self._outputs = None  # type: List[TxOutput]
+        self._inputs = None  # type: List[TxInput] | None
+        self._outputs = None  # type: List[TxOutput] | None
         self._locktime = 0
         self._version = 2
 
@@ -1083,7 +1081,7 @@ class Transaction:
         txin_index: int,
         *,
         sighash: Optional[int] = None,
-        sighash_cache: SighashCache = None,
+        sighash_cache: SighashCache | None = None,
     ) -> bytes:
         nVersion = int.to_bytes(self.version, length=4, byteorder="little", signed=True)
         nLocktime = int.to_bytes(self.locktime, length=4, byteorder="little", signed=False)
@@ -1182,7 +1180,7 @@ class Transaction:
         txin_index: int,
         pubkey_bytes: bytes,
         sig: bytes,
-        sighash_cache: SighashCache = None,
+        sighash_cache: SighashCache | None = None,
     ) -> bool:
         txin = self.inputs()[txin_index]
         if txin.is_taproot():
@@ -1257,7 +1255,8 @@ class Transaction:
             tx.convert_all_utxos_to_witness_utxos()
             is_complete = False
         tx_bytes = tx.serialize_as_bytes()
-        return base_encode(tx_bytes, base=43), is_complete
+        tx_base43 = base_encode(tx_bytes, base=43)  # FIXME this takes quadratic time in len(tx)
+        return tx_base43, is_complete
 
     def txid(self) -> Optional[str]:
         if self._cached_txid is None:
@@ -1380,6 +1379,9 @@ class Transaction:
     def is_rbf_enabled(self) -> bool:
         """Whether the tx explicitly signals BIP-0125 replace-by-fee."""
         return any([txin.nsequence < 0xffffffff - 1 for txin in self.inputs()])
+
+    def is_coinbase_tx(self) -> bool:
+        return self.inputs()[0].is_coinbase_input()
 
     def estimated_size(self) -> int:
         """Return an estimated virtual tx size in vbytes.
@@ -1534,8 +1536,44 @@ def convert_raw_tx_to_hex(raw: Union[str, bytes]) -> str:
     raw tx hex string."""
     if not raw:
         raise ValueError("empty string")
-    raw_unstripped = raw
-    if isinstance(raw, str):
+    # try hex
+    try:
+        return binascii.unhexlify(raw).hex()
+    except Exception:
+        pass
+    # try base64
+    if raw[0:6] in ('cHNidP', b'cHNidP'):  # base64 psbt
+        try:
+            return base64.b64decode(raw, validate=True).hex()
+        except Exception:
+            pass
+    # try base43
+    try:
+        # FIXME This takes quadratic time in len(tx).
+        #       We could prefix all txs we base43-serialize with e.g. "BASE43TX:",
+        #       (and break-compat with old versions).  Then at least we would not attempt
+        #       the expensive deser here if it's not needed.
+        if len(raw) > 30_000:
+            # note: base_decode for this length takes around 0.2 sec on my laptop.
+            # note: We only use/expect base43 inside QR codes. The max data a QR can fit is around 4 KB,
+            #       serializing that to b43 results in a length of ~5500. 30k is already over 5x that.
+            raise ValueError("raw tx too large for base43")
+        return base_decode(raw, base=43).hex()
+    except Exception:
+        pass
+    # raw bytes
+    if isinstance(raw, (bytes, bytearray)):
+        return raw.hex()
+    raise ValueError(f"failed to recognize transaction encoding for txt: {raw[:30]}...")
+
+
+def tx_from_any(
+        raw: Union[str, bytes], *,
+        deserialize: bool = True,
+        sanitize: bool = True,
+) -> Union['PartialTransaction', 'Transaction']:
+    # re.sub is expensive, set sanitize to False if raw data is not from user input
+    if isinstance(raw, str) and sanitize:
         # remove all whitespace characters, anywhere, for convenience
         # - leading/trailing whitespaces are quite common for user-input
         # - newlines in the middle can also happen, e.g. when copying a raw tx from a pdf
@@ -1545,32 +1583,6 @@ def convert_raw_tx_to_hex(raw: Union[str, bytes]) -> str:
         #       consider:  "\n".encode().hex() == "0a"
         #       For str, this is a non-issue and safe to do.
         raw = re.sub(r'\s', '', raw)
-    # try hex
-    try:
-        return binascii.unhexlify(raw).hex()
-    except Exception:
-        pass
-    # try base43
-    try:
-        return base_decode(raw, base=43).hex()
-    except Exception:
-        pass
-    # try base64
-    if raw[0:6] in ('cHNidP', b'cHNidP'):  # base64 psbt
-        try:
-            return base64.b64decode(raw, validate=True).hex()
-        except Exception:
-            pass
-    # raw bytes (do not strip whitespaces in this case)
-    if isinstance(raw_unstripped, bytes):
-        return raw_unstripped.hex()
-    raise ValueError(f"failed to recognize transaction encoding for txt: {raw[:30]}...")
-
-
-def tx_from_any(raw: Union[str, bytes], *,
-                deserialize: bool = True) -> Union['PartialTransaction', 'Transaction']:
-    if isinstance(raw, bytearray):
-        raw = bytes(raw)
     raw = convert_raw_tx_to_hex(raw)
     try:
         return PartialTransaction.from_raw_psbt(raw)
@@ -2106,7 +2118,7 @@ class PartialTxInput(TxInput, PSBTSection):
 
     def already_has_some_signatures(self) -> bool:
         """Returns whether progress has been made towards completing this input."""
-        return (self.sigs_ecdsa
+        return (bool(self.sigs_ecdsa)
                 or self.tap_key_sig is not None
                 or self.script_sig is not None
                 or self.witness is not None)
@@ -2393,8 +2405,8 @@ class PartialTransaction(Transaction):
             inputs: Sequence[PartialTxInput],
             outputs: Sequence[PartialTxOutput],
             *,
-            locktime: int = None,
-            version: int = None,
+            locktime: int | None = None,
+            version: int | None = None,
             BIP69_sort: bool = True
     ) -> 'PartialTransaction':
         self = cls()
@@ -2562,7 +2574,7 @@ class PartialTransaction(Transaction):
         txin_index: int,
         privkey_bytes: bytes,
         *,
-        sighash_cache: SighashCache = None,
+        sighash_cache: SighashCache | None = None,
     ) -> bytes:
         txin = self.inputs()[txin_index]
         txin.validate_data(for_signing=True)

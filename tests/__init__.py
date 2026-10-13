@@ -6,7 +6,7 @@ import tempfile
 import shutil
 import functools
 import inspect
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, Callable, List
 
 import electrum
 import electrum.logging
@@ -37,7 +37,8 @@ class ElectrumTestCase(unittest.IsolatedAsyncioTestCase, Logger):
 
     TESTNET = False  # there is also an @as_testnet decorator to run single tests in testnet mode
     REGTEST = False
-    TEST_ANCHOR_CHANNELS = False
+    TEST_ANCHOR_CHANNELS = True
+    TIME_STEP = 0.01
     WALLET_FILES_DIR = os.path.join(os.path.dirname(__file__), "test_storage_upgrade")
     # maxDiff = None  # for debugging
 
@@ -99,15 +100,19 @@ class ElectrumTestCase(unittest.IsolatedAsyncioTestCase, Logger):
         util._asyncio_event_loop = None  # cleared here, at the ~last possible moment. asyncTearDown is too early.
         self._test_lock.release()
 
+    async def wait_until(self, predicate: Callable[[], bool], *, timeout: int = 20) -> None:
+        async with util.async_timeout(timeout):
+            while not predicate():
+                await asyncio.sleep(self.TIME_STEP)
+
     def create_mock_lnwallet(
         self,
         *,
         name: str,
-        has_anchors: bool,
     ) -> 'MockLNWallet':
-        from .test_lnpeer import _create_mock_lnwallet
+        from .lnhelpers import _create_mock_lnwallet
         data_dir = tempfile.mkdtemp(prefix="lnwallet-", dir=self.unittest_base_path)
-        lnwallet = _create_mock_lnwallet(name=name, has_anchors=has_anchors, data_dir=data_dir)
+        lnwallet = _create_mock_lnwallet(name=name, has_anchors=self.TEST_ANCHOR_CHANNELS, data_dir=data_dir)
         self._lnworkers_created.append(lnwallet)
         return lnwallet
 
@@ -132,6 +137,28 @@ def as_testnet(func):
         def run_test(*args, **kwargs):
             try:
                 constants.BitcoinTestnet.set_as_network()
+                return func(*args, **kwargs)
+            finally:
+                constants.net = old_net
+    return run_test
+
+def as_regtest(func):
+    """Function decorator to run a single unit test in regtest mode.
+
+    NOTE: this is inherently sequential; tests running in parallel would break things
+    """
+    old_net = constants.net
+    if inspect.iscoroutinefunction(func):
+        async def run_test(*args, **kwargs):
+            try:
+                constants.BitcoinRegtest.set_as_network()
+                return await func(*args, **kwargs)
+            finally:
+                constants.net = old_net
+    else:
+        def run_test(*args, **kwargs):
+            try:
+                constants.BitcoinRegtest.set_as_network()
                 return func(*args, **kwargs)
             finally:
                 constants.net = old_net

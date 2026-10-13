@@ -40,11 +40,12 @@ import aiohttp
 from aiohttp import web, client_exceptions
 from aiorpcx import ignore_after
 
+from . import crandom
 from . import util
 from .network import Network
 from .util import (
     json_decode, to_bytes, to_string, profiler, standardize_path, constant_time_compare, InvalidPassword,
-    log_exceptions, randrange, OldTaskGroup, UserFacingException, JsonRPCError, os_chmod
+    log_exceptions, OldTaskGroup, UserFacingException, JsonRPCError, os_chmod
 )
 from .wallet import Wallet, Abstract_Wallet
 from .storage import WalletStorage
@@ -187,7 +188,7 @@ def get_rpc_credentials(config: SimpleConfig) -> Tuple[str, str]:
         rpc_user = 'user'
         bits = 128
         nbytes = bits // 8 + (bits % 8 > 0)
-        pw_int = randrange(pow(2, bits))
+        pw_int = crandom.get_rand_below(pow(2, bits))
         pw_b64 = b64encode(
             pw_int.to_bytes(nbytes, 'big'), b'-_')
         rpc_password = to_string(pw_b64, 'ascii')
@@ -564,7 +565,7 @@ class Daemon(Logger):
 
     @with_wallet_lock
     def add_wallet(self, wallet: Abstract_Wallet) -> None:
-        path = wallet.storage.path
+        path = wallet.storage.get_path()
         wallet_key = self._wallet_key_from_path(path)
         self._wallets[wallet_key] = wallet
         run_hook('daemon_wallet_loaded', self, wallet)
@@ -587,6 +588,17 @@ class Daemon(Logger):
             return True
         return False
 
+    def rename_wallet_file(self, old_path: str, new_path: str):
+        old_path = standardize_path(old_path)
+        new_path = standardize_path(new_path)
+        if os.path.exists(new_path):
+            raise ValueError("Wallet file already exists")
+        os.rename(old_path, new_path)
+        self.logger.debug(f'renamed wallet: {old_path} -> {new_path}')
+        self.update_recently_opened_wallets(old_path, remove=True)
+        if self.config.CURRENT_WALLET == old_path:
+            self.config.CURRENT_WALLET = new_path
+
     def stop_wallet(self, path: str) -> bool:
         """Returns True iff a wallet was found."""
         assert util.get_running_loop() != util.get_asyncio_loop(), 'must not be called from asyncio thread'
@@ -603,8 +615,8 @@ class Daemon(Logger):
             return False
         await wallet.stop()
         if self.config.get('wallet_path') is None:
-            wallet_paths = [w.db.storage.path for w in self._wallets.values()
-                            if w.db.storage and w.db.storage.path]
+            wallet_paths = [w.storage.get_path() for w in self._wallets.values()
+                            if w.storage and w.storage.get_path()]
             if self.config.CURRENT_WALLET == path and wallet_paths:
                 self.config.CURRENT_WALLET = wallet_paths[0]
         return True
@@ -759,7 +771,9 @@ class Daemon(Logger):
             old_password=old_password, new_password=new_password, wallet_dir=wallet_dir)
         return True
 
-    def update_recently_opened_wallets(self, wallet_path, *, remove: bool = False):
+    def update_recently_opened_wallets(self, wallet_path, *, remove: bool = False) -> None:
+        if util.is_hidden_wallet_path(wallet_path):
+            return None  # don't save "hidden wallet" paths
         recent = self.config.RECENTLY_OPEN_WALLET_FILES or []
         if wallet_path in recent:
             recent.remove(wallet_path)

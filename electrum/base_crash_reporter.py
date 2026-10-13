@@ -32,7 +32,7 @@ from .version import ELECTRUM_VERSION
 from . import constants
 from .i18n import _
 from .util import make_aiohttp_session, error_text_str_to_safe_str
-from .logging import describe_os_version, Logger, get_git_version
+from .logging import describe_os_version, Logger, get_logger, get_git_version
 from .crypto import sha256
 
 if TYPE_CHECKING:
@@ -89,13 +89,19 @@ class BaseCrashReporter(Logger):
 
     def send_report(self, asyncio_loop, proxy: 'ProxySettings', *, timeout=None) -> CrashReportResponse:
         # FIXME the caller needs to catch generic "Exception", as this method does not have a well-defined API...
-        if (constants.net.GENESIS[-4:] not in [
+        bitcoinlike_genesis = constants.net.GENESIS[-4:] in [
             "bfe2",  # mainnet
             "29a0",  # testnet 3
             "f043",  # testnet 4
             "1ef6",  # signet
-        ] and ".electrum-ltc.org" in BaseCrashReporter.report_server):
-            # Gah! Some kind of altcoin wants to send us crash reports.
+        ]
+        is_forked_codebase = not bitcoinlike_genesis or "/ltc-electrum/" not in constants.GIT_REPO_URL
+        if is_forked_codebase and ".electrum-ltc.org" in BaseCrashReporter.report_server:
+            # Some kind of altcoin wants to send us crash reports... ?
+            # - You, the reader, yes *you*: if you forked the codebase e.g. to support an altcoin,
+            #   please consider that upstream Electrum does NOT want to receive automated crash reports
+            #   from your users.  You should set up your own crash report server,
+            #   and change `BaseCrashReporter.report_server` accordingly, or just disable reporting.
             raise Exception(_("Missing report URL."))
         report = self.get_traceback_info(*self.exc_args)
         report.update(self.get_additional_info())
@@ -215,7 +221,8 @@ class EarlyExceptionsQueue:
     """
 
     _is_exc_hook_ready = False
-    _exc_queue = queue.Queue()
+    _exc_queue = queue.Queue(maxsize=100)
+    _logger = get_logger(__name__)
 
     @classmethod
     def set_hook_as_ready(cls):
@@ -232,7 +239,12 @@ class EarlyExceptionsQueue:
         if cls._is_exc_hook_ready:
             cls._send_exception_to_crash_reporter(e)
         else:
-            cls._exc_queue.put(e)
+            # The exc hook might never become ready (e.g. daemon), so log now.
+            cls._logger.error("exception passed to crash reporter (exc hook not ready):", exc_info=e)
+            try:
+                cls._exc_queue.put_nowait(e)
+            except queue.Full:
+                pass
 
     @staticmethod
     def _send_exception_to_crash_reporter(e: BaseException):

@@ -91,6 +91,26 @@ class TestWalletStorage(WalletTestCase):
         for key, value in some_dict.items():
             self.assertEqual(d[key], value)
 
+    async def test_appends_after_incomplete_data_recovery_survive_reload(self):
+        storage = WalletStorage(self.wallet_path, allow_partial_writes=True)
+        db = JsonDB('', storage=storage)
+        db.put("a", "b")
+        db.write()
+        # simulate a crash that truncated an appended patch
+        with open(self.wallet_path, "a") as f:
+            f.write(',\n{"op": "add", "path": "/x", "value": {"inco')
+        # reopen: recovery drops the incomplete patch
+        storage = WalletStorage(self.wallet_path, allow_partial_writes=True)
+        db = JsonDB(storage.read(), storage=storage)
+        self.assertEqual(db.get("a"), "b")
+        # append a new patch to the recovered wallet
+        db.put("c", "d")
+        db.write()
+        # reopen: the appended patch must not be lost
+        storage = WalletStorage(self.wallet_path, allow_partial_writes=True)
+        db = JsonDB(storage.read(), storage=storage)
+        self.assertEqual(db.get("c"), "d")
+
     async def test_storage_imported_add_privkeys_persistence_test(self):
         text = ' '.join([
             'p2wpkh:TAa25Tq4PdzhDKBoVaFaCdV3yxvLrRikQviNkuFQLeYopsVvNTV3',
@@ -356,9 +376,13 @@ class TestCreateRestoreWallet(WalletTestCase):
         wallet = d['wallet']  # type: Imported_Wallet
         self.assertEqual('ltc1q2ccr34wzep58d4239tl3x3734ttle92arvely7', wallet.get_receiving_addresses()[0])
         self.assertEqual(2, len(wallet.get_receiving_addresses()))
+        # we don't know the script type of an imported address
+        self.assertEqual('address', wallet.get_txin_type('bc1qnp78h78vp92pwdwq5xvh8eprlga5q8gu66960c'))
         # also test addr deletion
         wallet.delete_address('ltc1qnp78h78vp92pwdwq5xvh8eprlga5q8gu7xl7hg')
         self.assertEqual(1, len(wallet.get_receiving_addresses()))
+        # querying an address that is not is_mine
+        self.assertEqual('unknown', wallet.get_txin_type('bc1qnp78h78vp92pwdwq5xvh8eprlga5q8gu66960c'))
 
     async def test_restore_wallet_from_text_privkeys(self):
         text = 'p2wpkh:TAa25Tq4PdzhDKBoVaFaCdV3yxvLrRikQviNkuFQLeYopsVvNTV3 p2wpkh:T7tYQXfHmkSmS3A2eLCrPNHG21JrEFj9NZWbS6f71Z7SLEgRqD97'

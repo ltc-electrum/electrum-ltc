@@ -1,19 +1,44 @@
 import os
 
 from pythonforandroid.recipes.hostpython3 import HostPython3Recipe
-from pythonforandroid.util import load_source
+from pythonforandroid.util import load_source, HashPinnedDependency
 
 util = load_source('util', os.path.join(os.path.dirname(os.path.dirname(__file__)), 'util.py'))
 
 
 assert HostPython3Recipe.depends == []
 assert HostPython3Recipe.python_depends == []
+assert HostPython3Recipe.patches == []
 
 
 class HostPython3RecipePinned(util.InheritedRecipeMixin, HostPython3Recipe):
     # PYTHON_VERSION=    # < line here so that I can grep the codebase and teleport here
-    version = "3.11.14"
-    sha512sum = "41fb3ae22ce4ac0e8bb6b9ae8db88a810af1001d944e3f1abc9e86824ae4be31347e3e3a70425ab12271c6b7eeef552f00164ef23cfffa2551c3c9d1fe5ab91f"
+    version = "3.11.16"
+    sha512sum = "430fbf05fa14a1e8fa66bdcd268558d6e816ba756c6b13fe338ff90f6fd55d2ec80ff723d9f9771f40b318d060d9d39cc5e8cddca066324359020cefabeab864"
+
+    # use official releases from python.org that have sigs, instead of auto-generated archives from github
+    url = 'https://www.python.org/ftp/python/{version}/Python-{version}.tgz'
+
+    # TODO: remove patch once CPython >= 3.12 is used (no more bundled setuptools)
+    patches = [
+        os.path.join(os.path.dirname(__file__), "patches", "cpython-311-ensurepip-no-setuptools.patch"),
+    ]
+
+    # this property overrides the default hostpython dependencies for PyProjectRecipe recipies
+    pyproject_base_dependencies = [
+        HashPinnedDependency(package="build==1.4.0",
+                             hashes=['sha256:6a07c1b8eb6f2b311b96fcbdbce5dab5fe637ffda0fd83c9cac622e927501596']),
+        HashPinnedDependency(package="pip==24.0",
+                             hashes=['sha256:ba0d021a166865d2265246961bec0152ff124de910c5cc39f1156ce3fa7c69dc']),
+        HashPinnedDependency(package="setuptools==80.9.0",
+                             hashes=['sha256:062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922']),
+
+        # pin deptree build==1.4.0
+        HashPinnedDependency(package="packaging==26.0",
+                             hashes=['sha256:b36f1fef9334a5588b4166f8bcd26a14e521f2b55e6b9de3aaa80d3ff7a37529']),
+        HashPinnedDependency(package="pyproject_hooks==1.2.0",
+                             hashes=['sha256:9e5c6bfa8dcc30091c74b0cf803c81fdd29d94f01992a7707bc97babb1141913']),
+    ]
 
 
 recipe = HostPython3RecipePinned()

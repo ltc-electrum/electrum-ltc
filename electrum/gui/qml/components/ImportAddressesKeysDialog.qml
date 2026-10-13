@@ -84,7 +84,6 @@ ElDialog {
                         icon.source: '../../icons/qrcode.png'
                         icon.height: constants.iconSizeMedium
                         icon.width: constants.iconSizeMedium
-                        scale: 1.2
                         onClicked: {
                             var dialog = app.scanDialog.createObject(app, {
                                 hint: Daemon.currentWallet.isWatchOnly
@@ -122,6 +121,13 @@ ElDialog {
 
     Bitcoin {
         id: bitcoin
+    }
+
+    Binding {
+        target: AppController
+        property: 'secureWindow'
+        when: root.visible  // enables stacking multiple secureWindow dialogs
+        value: true
     }
 
 }

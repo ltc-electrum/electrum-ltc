@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cirrus CI task: Claude Code security review for Electrum pull requests.
+GitHub Actions job: Claude Code security review for Electrum pull requests.
 
 Runs Claude Code against the PR diff to detect critical security
 vulnerabilities. Optionally posts findings as a GitHub PR comment.
@@ -15,11 +15,13 @@ Environment variables:
         CLAUDE_CODE_OAUTH_TOKEN  -- OAuth token from `claude setup-token` (MAX subscription)
     Optional:
         GITHUB_TOKEN             -- GitHub token for posting PR comments
-    Set by Cirrus CI:
-        CIRRUS_PR                -- PR number (empty if not a PR build)
-        CIRRUS_BASE_BRANCH       -- target branch of the PR
-        CIRRUS_REPO_FULL_NAME    -- e.g. "spesmilo/electrum"
-        CIRRUS_TASK_ID           -- current Cirrus task ID
+    Set by the workflow:
+        PR_NUMBER                -- PR number (empty if not a PR build)
+        BASE_BRANCH              -- target branch of the PR
+    Set by GitHub Actions runtime:
+        GITHUB_REPOSITORY        -- e.g. "spesmilo/electrum"
+        GITHUB_RUN_ID            -- current workflow run ID
+        GITHUB_SERVER_URL        -- e.g. "https://github.com"
 """
 
 import json
@@ -34,8 +36,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROMPT_FILE = os.path.join(SCRIPT_DIR, "security_review_prompt.md")
 
 MAX_DIFF_CHARS = 800_000
-CLAUDE_TIMEOUT_SECONDS = 20 * 60
-CLAUDE_MODEL = "claude-opus-4-6"
+CLAUDE_TIMEOUT_SECONDS = 60 * 60
+CLAUDE_MODEL = "claude-opus-5"
 CLAUDE_EFFORT = "max"
 
 VERDICT_PASS = "PASS"
@@ -70,25 +72,32 @@ def get_pr_diff(base: str) -> str:
     return git("diff", f"origin/{base}...HEAD")
 
 
+def get_commit_messages(base: str) -> str:
+    return git("log", f"origin/{base}..HEAD")
+
+
 def changed_files_from_diff(diff: str) -> str:
     return "\n".join(
         m.group(1) for m in re.finditer(r"^diff --git a/.+ b/(.+)$", diff, re.MULTILINE)
     )
 
 
-def build_prompt(diff: str, changed_files: str) -> str:
+def read_system_prompt() -> str:
     with open(PROMPT_FILE) as f:
-        instructions = f.read()
+        return f.read()
 
+
+def build_user_prompt(diff: str, changed_files: str, commit_messages: str) -> str:
     return (
-        f"{instructions}\n\n"
-        f"---\n\n"
+        "Review the following PR diff according to the review "
+        "guidelines in your system prompt.\n\n"
         f"## Changed files\n\n```\n{changed_files}\n```\n\n"
+        f"## Commit messages\n\n```\n{commit_messages}\n```\n\n"
         f"## Diff\n\n```diff\n{diff}\n```"
     )
 
 
-def run_claude(prompt: str) -> str | None:
+def run_claude(user_prompt: str, system_prompt: str) -> str | None:
     """Invoke Claude Code CLI in print mode. Returns review text or None on failure.
 
     Passes the prompt via stdin to avoid OS argument length limits (MAX_ARG_STRLEN).
@@ -96,15 +105,17 @@ def run_claude(prompt: str) -> str | None:
     cmd = [
         "claude",
         "-p",
+        "--dangerously-skip-permissions",
         "--model", CLAUDE_MODEL,
         "--effort", CLAUDE_EFFORT,
         "--output-format", "text",
+        "--append-system-prompt", system_prompt,
     ]
 
     try:
         result = subprocess.run(
             cmd,
-            input=prompt,
+            input=user_prompt,
             capture_output=True,
             text=True,
             timeout=CLAUDE_TIMEOUT_SECONDS,
@@ -142,14 +153,15 @@ def post_github_comment(body: str, *, repo: str, pr: str) -> None:
         print("GITHUB_TOKEN not set -- skipping PR comment.")
         return
 
-    task_id = os.environ.get("CIRRUS_TASK_ID", "")
-    log_url = f"https://cirrus-ci.com/task/{task_id}" if task_id else ""
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    server_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+    log_url = f"{server_url}/{repo}/actions/runs/{run_id}" if run_id else ""
 
     comment = (
         f"## Security Review -- Issues Found\n\n"
         f"{body}\n\n"
         f"---\n"
-        f"*Reviewed by Claude Code ({CLAUDE_MODEL})*"
+        f"*Reviewed by Claude Code ({CLAUDE_MODEL}) at {CLAUDE_EFFORT} effort*"
     )
     if log_url:
         comment += f" | [Full CI log]({log_url})"
@@ -186,17 +198,16 @@ def main() -> int:
     print("Claude Code Security Review")
     print(separator)
 
-    pr = os.environ.get("CIRRUS_PR", "").strip()
+    pr = os.environ.get("PR_NUMBER", "").strip()
     if not pr:
-        print("Not a PR build (CIRRUS_PR is empty). Skipping.")
+        print("Not a PR build (PR_NUMBER is empty). Skipping.")
         return 0
 
     if not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip():
         print("ERROR: CLAUDE_CODE_OAUTH_TOKEN is not set.")
         return 2
 
-    repo = os.environ.get("CIRRUS_REPO_FULL_NAME", "").strip()
-    base_branch = os.environ.get("CIRRUS_BASE_BRANCH", "master").strip()
+    base_branch = os.environ.get("BASE_BRANCH", "master").strip()
     print(f"PR #{pr} -> base branch: {base_branch}")
 
     print("\nFetching base branch...")
@@ -217,6 +228,12 @@ def main() -> int:
         print("Empty diff -- nothing to review.")
         return 0
 
+    try:
+        commit_messages = get_commit_messages(base_branch)
+    except subprocess.CalledProcessError as exc:
+        print(f"ERROR: git log failed: {exc}")
+        return 2
+
     changed_files = changed_files_from_diff(diff)
     file_count = len(changed_files.splitlines())
     print(f"Reviewing changes across {file_count} file(s)...")
@@ -225,10 +242,11 @@ def main() -> int:
         print(f"ERROR: diff is {len(diff)} chars, exceeds maximum of {MAX_DIFF_CHARS}. Skipping review.")
         return 2
 
-    prompt = build_prompt(diff, changed_files)
+    user_prompt = build_user_prompt(diff, changed_files, commit_messages)
+    system_prompt = read_system_prompt()
 
-    print(f"\nRunning Claude Code review (model: {CLAUDE_MODEL})...\n")
-    review = run_claude(prompt)
+    print(f"\nRunning Claude Code review (model: {CLAUDE_MODEL}) at {CLAUDE_EFFORT} effort...\n")
+    review = run_claude(user_prompt, system_prompt)
 
     if review is None:
         print("Review failed to produce output.")
@@ -243,6 +261,7 @@ def main() -> int:
     verdict = parse_verdict(review)
 
     if verdict == VERDICT_FAIL:
+        repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
         print("\nVERDICT: FAIL -- Critical or high severity issues found.")
         post_github_comment(review, repo=repo, pr=pr)
         return 1

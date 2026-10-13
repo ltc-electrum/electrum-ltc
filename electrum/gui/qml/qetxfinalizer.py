@@ -1,11 +1,11 @@
 import copy
 from enum import IntEnum
 import threading
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Optional, TYPE_CHECKING, Callable
 from functools import partial
 
-from PyQt6.QtCore import pyqtProperty, pyqtSignal, pyqtSlot, QObject, pyqtEnum
+from PyQt6.QtCore import pyqtProperty, pyqtSignal, pyqtSlot, QObject, pyqtEnum, QVariant
 
 from electrum.logging import get_logger
 from electrum.i18n import _
@@ -21,7 +21,7 @@ from electrum.fee_policy import FeePolicy, FeeMethod
 from electrum.network import NetworkException
 
 from electrum.gui import messages
-from electrum.gui.common_qt.util import QtEventListener
+from electrum.gui.common_qt.util import QtEventListener, ignore_if_destroyed
 
 from .qewallet import QEWallet
 from .qetypes import QEAmount
@@ -68,12 +68,13 @@ class FeeSlider(QObject):
         self._config = None  # type: Optional[SimpleConfig]
 
     walletChanged = pyqtSignal()
-    @pyqtProperty(QEWallet, notify=walletChanged)
-    def wallet(self):
+    @pyqtProperty(QVariant, notify=walletChanged)
+    def wallet(self) -> QEWallet:
         return self._wallet
 
     @wallet.setter
     def wallet(self, wallet: QEWallet):
+        assert wallet is None or isinstance(wallet, QEWallet)
         if self._wallet != wallet:
             self._wallet = wallet
             self._config = self._wallet.wallet.config
@@ -170,12 +171,13 @@ class TxFeeSlider(FeeSlider):
         self._warning = ''
 
     feeChanged = pyqtSignal()
-    @pyqtProperty(QEAmount, notify=feeChanged)
-    def fee(self):
+    @pyqtProperty(QVariant, notify=feeChanged)
+    def fee(self) -> QEAmount:
         return self._fee
 
     @fee.setter
-    def fee(self, fee):
+    def fee(self, fee: QEAmount):
+        assert fee is None or isinstance(fee, QEAmount)
         if self._fee != fee:
             self._fee.copyFrom(fee)
             self.feeChanged.emit()
@@ -217,7 +219,10 @@ class TxFeeSlider(FeeSlider):
         if self._userFeerate != userFeerate:
             self._logger.warn('userFeerate')
             self._userFeerate = userFeerate
-            as_decimal = Decimal(userFeerate) if userFeerate else 0
+            try:
+                as_decimal = Decimal(userFeerate) if userFeerate else 0
+            except InvalidOperation:
+                as_decimal = 0
             user_feerate = int(as_decimal * 1000)
             self._fee_policy = FeePolicy(f'feerate:{user_feerate}')
             self.userFeerateChanged.emit()
@@ -419,12 +424,13 @@ class QETxFinalizer(TxFeeSlider):
             self.addressChanged.emit()
 
     amountChanged = pyqtSignal()
-    @pyqtProperty(QEAmount, notify=amountChanged)
-    def amount(self):
+    @pyqtProperty(QVariant, notify=amountChanged)
+    def amount(self) -> QEAmount:
         return self._amount
 
     @amount.setter
-    def amount(self, amount):
+    def amount(self, amount: QEAmount):
+        assert amount is None or isinstance(amount, QEAmount)
         if self._amount != amount:
             self._logger.debug(str(amount))
             self._amount.copyFrom(amount)
@@ -436,12 +442,13 @@ class QETxFinalizer(TxFeeSlider):
         return self._effectiveAmount
 
     extraFeeChanged = pyqtSignal()
-    @pyqtProperty(QEAmount, notify=extraFeeChanged)
-    def extraFee(self):
+    @pyqtProperty(QVariant, notify=extraFeeChanged)
+    def extraFee(self) -> QEAmount:
         return self._extraFee
 
     @extraFee.setter
-    def extraFee(self, extrafee):
+    def extraFee(self, extrafee: QEAmount):
+        assert extrafee is None or isinstance(extrafee, QEAmount)
         if self._extraFee != extrafee:
             self._extraFee.copyFrom(extrafee)
             self.extraFeeChanged.emit()
@@ -578,7 +585,7 @@ class QETxFinalizer(TxFeeSlider):
                 self._logger.error('Could not save tx')
         self.finished.emit(True, saved, tx.is_complete())
 
-    def on_sign_failed(self, msg: str = None):
+    def on_sign_failed(self, msg: str | None = None):
         self._logger.debug('on_sign_failed')
         self.signError.emit(msg)
 
@@ -666,12 +673,13 @@ class QETxRbfFeeBumper(TxFeeSlider, TxMonMixin):
         self._bump_methods_available = []
 
     oldfeeChanged = pyqtSignal()
-    @pyqtProperty(QEAmount, notify=oldfeeChanged)
-    def oldfee(self):
+    @pyqtProperty(QVariant, notify=oldfeeChanged)
+    def oldfee(self) -> QEAmount:
         return self._oldfee
 
     @oldfee.setter
-    def oldfee(self, oldfee):
+    def oldfee(self, oldfee: QEAmount):
+        assert oldfee is None or isinstance(oldfee, QEAmount)
         if self._oldfee != oldfee:
             self._oldfee.copyFrom(oldfee)
             self.oldfeeChanged.emit()
@@ -806,12 +814,13 @@ class QETxCanceller(TxFeeSlider, TxMonMixin):
         self._rbf = True
 
     oldfeeChanged = pyqtSignal()
-    @pyqtProperty(QEAmount, notify=oldfeeChanged)
-    def oldfee(self):
+    @pyqtProperty(QVariant, notify=oldfeeChanged)
+    def oldfee(self) -> QEAmount:
         return self._oldfee
 
     @oldfee.setter
-    def oldfee(self, oldfee):
+    def oldfee(self, oldfee: QEAmount):
+        assert oldfee is None or isinstance(oldfee, QEAmount)
         if self._oldfee != oldfee:
             self._oldfee.copyFrom(oldfee)
             self.oldfeeChanged.emit()
@@ -932,18 +941,19 @@ class QETxCpfpFeeBumper(TxFeeSlider, TxMonMixin):
         self._parent_tx = None
         self._new_tx = None
         self._parent_tx_size = 0
-        self._parent_fee = 0
+        self._parent_fee = 0  # type: int | None
         self._max_fee = 0
         self._txid = ''
         self._rbf = True
 
     totalFeeChanged = pyqtSignal()
-    @pyqtProperty(QEAmount, notify=totalFeeChanged)
-    def totalFee(self):
+    @pyqtProperty(QVariant, notify=totalFeeChanged)
+    def totalFee(self) -> QEAmount:
         return self._total_fee
 
     @totalFee.setter
-    def totalFee(self, totalfee):
+    def totalFee(self, totalfee: QEAmount):
+        assert totalfee is None or isinstance(totalfee, QEAmount)
         if self._total_fee != totalfee:
             self._total_fee.copyFrom(totalfee)
             self.totalFeeChanged.emit()
@@ -1151,6 +1161,7 @@ class QETxSweepFinalizer(QETxFinalizer):
     def update_privkeys(self):
         privkeys = keystore.get_private_keys(self._private_keys)
 
+        @ignore_if_destroyed(self)
         def fetch_privkeys_info():
             try:
                 self._txins = self._wallet.wallet.network.run_from_another_thread(sweep_preparations(privkeys, self._wallet.wallet.network))

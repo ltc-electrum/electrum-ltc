@@ -174,7 +174,7 @@ class TxBatcher(Logger):
     async def _maybe_redeem_legacy_htlcs(self, sweep_info: 'SweepInfo') -> None:
         assert sweep_info.csv_delay == 0
         local_height = self.wallet.network.get_local_height()
-        wanted_height = sweep_info.cltv_abs
+        wanted_height = sweep_info.our_cltv_abs
         if wanted_height - local_height > 0:
             return
         outpoint = sweep_info.txin.prevout.to_str()
@@ -184,9 +184,10 @@ class TxBatcher(Logger):
             if tx_mined_status.height() > 0:
                 return
             if tx_mined_status.height() not in [TX_HEIGHT_LOCAL, TX_HEIGHT_FUTURE]:
+                # prevout spent (or spender in mempool), nothing left to do. see also _to_sweep_after() comment.
                 return
         self.logger.info(f'will broadcast standalone tx {sweep_info.name}')
-        tx = PartialTransaction.from_io([sweep_info.txin], [sweep_info.txout], locktime=sweep_info.cltv_abs, version=2)
+        tx = PartialTransaction.from_io([sweep_info.txin], [sweep_info.txout], locktime=sweep_info.our_cltv_abs, version=2)
         self.wallet.sign_transaction(tx, password=None, ignore_warnings=True)
         if await self.wallet.network.try_broadcasting(tx, sweep_info.name):
             self.wallet.adb.add_transaction(tx)
@@ -287,6 +288,9 @@ class TxBatch(Logger):
     @locked
     def add_sweep_input(self, sweep_info: 'SweepInfo') -> None:
         """Can raise BelowDustLimit or NoDynamicFeeEstimates."""
+        if sweep_info.is_expired(self.wallet.adb.get_local_height()):
+            self.logger.info(f'not adding expired sweep: {sweep_info.name}')
+            return
         if self.is_dust(sweep_info):
             # note: this uses the current fee estimates. Just because something is dust
             #       at the current fee levels, if fees go down, it might still become
@@ -328,6 +332,15 @@ class TxBatch(Logger):
         result = []  # type: list[tuple[TxOutpoint, SweepInfo]]
         for prevout, sweep_info in list(self.batch_inputs.items()):
             assert prevout == sweep_info.txin.prevout
+            if prevout in tx_prevouts:
+                # the current batch tx spends this input. We must not drop the sweep_info
+                # here: add_sweep_info_to_tx needs it to sign the replacement of that tx.
+                continue
+            if sweep_info.is_expired(self.wallet.adb.get_local_height()):
+                self.logger.info(f"sweep expired, giving up on {sweep_info.name} {prevout}")
+                self.batch_inputs.pop(prevout)
+                self._unconfirmed_sweeps.discard(prevout)
+                continue
             prev_txid, index = prevout.to_str().split(':')
             if not (prev_tx := self.wallet.adb.db.get_transaction(prev_txid)):
                 continue
@@ -335,7 +348,7 @@ class TxBatch(Logger):
                 prev_tx_mined_status = self.wallet.adb.get_tx_height(prev_txid)
                 if prev_tx_mined_status.conf > 0:
                     self.logger.info(f"anchor not needed {prevout}")
-                    self.batch_inputs.pop(prevout)  # note: if the input is already in a batch tx, this will trigger assert error
+                    self.batch_inputs.pop(prevout)
                     continue
                 prev_tx_current_fee = self.wallet.adb.get_tx_fee(prev_txid)
                 try:
@@ -355,9 +368,13 @@ class TxBatch(Logger):
             if spender_txid := self.wallet.adb.db.get_spent_outpoint(prev_txid, int(index)):
                 tx_mined_status = self.wallet.adb.get_tx_height(spender_txid)
                 if tx_mined_status.height() not in [TX_HEIGHT_LOCAL, TX_HEIGHT_FUTURE]:
+                    # spent by a tx that is not our base_tx (mempool or mined).
+                    # do not compete with it, even if it is unconfirmed:
+                    #  - it might be ours (e.g. another device with the same seed)
+                    #  - for timelocked outputs (e.g. in lightning), by the time the counterparty can spend,
+                    #    our exclusive window has passed already. we don't engage in rbf race.
+                    # FIXME electrum server could lie and inject unconfirmed spends
                     continue
-            if prevout in tx_prevouts:
-                continue
             result.append((prevout, sweep_info))
         return dict(result)
 
@@ -538,10 +555,10 @@ class TxBatch(Logger):
         locktime = base_tx.locktime if base_tx else None
         # sort inputs so that txin-txout pairs are first
         for sweep_info in sorted(to_sweep, key=lambda x: not bool(x.txout)):
-            if sweep_info.cltv_abs is not None:
-                if locktime is None or locktime < sweep_info.cltv_abs:  # FIXME height vs timestamp confusion
+            if sweep_info.our_cltv_abs is not None:
+                if locktime is None or locktime < sweep_info.our_cltv_abs:  # FIXME height vs timestamp confusion
                     # nLockTime must be greater than or equal to the stack operand.
-                    locktime = sweep_info.cltv_abs
+                    locktime = sweep_info.our_cltv_abs
             inputs.append(copy.deepcopy(sweep_info.txin))
             if sweep_info.txout:
                 outputs.append(sweep_info.txout)
@@ -609,8 +626,8 @@ class TxBatch(Logger):
         wanted_height_cltv = None
         wanted_height_csv = None
         local_height = self.wallet.network.get_local_height()
-        if sweep_info.cltv_abs:
-            wanted_height_cltv = sweep_info.cltv_abs
+        if sweep_info.our_cltv_abs:
+            wanted_height_cltv = sweep_info.our_cltv_abs
             if wanted_height_cltv - local_height > 0:
                 can_broadcast = False
         prev_height = self.wallet.adb.get_tx_height(prev_txid).height()

@@ -7,13 +7,20 @@ FROM debian:bullseye@sha256:cf48c31af360e1c0a0aedd33aae4d928b68c2cdf093f1612650e
 ENV LC_ALL=C.UTF-8 LANG=C.UTF-8
 ENV DEBIAN_FRONTEND=noninteractive
 
-# need ca-certificates before using snapshot packages
-RUN apt update -qq > /dev/null && apt install -qq --yes --no-install-recommends \
-    ca-certificates
-
 # pin the distro packages
 COPY apt.sources.list /etc/apt/sources.list
 COPY apt.preferences /etc/apt/preferences.d/snapshot
+
+# fetch ca-certificates via http first so the snapshot packages below can be fetched via https
+# FIXME: could be simplified back to the below when bumping the base image:
+# https://github.com/spesmilo/electrum/blob/722f70238d8f719c0fa64940c5dd9c892782f8da/contrib/build-linux/appimage/Dockerfile#L10-L12
+RUN sed -e 's#https://#http://#' /etc/apt/sources.list > /tmp/sources.list.bootstrap && \
+    apt-get -o Dir::Etc::SourceList=/tmp/sources.list.bootstrap update -q && \
+    apt-get -o Dir::Etc::SourceList=/tmp/sources.list.bootstrap install -qy --allow-downgrades --no-install-recommends \
+        ca-certificates \
+        && \
+    rm -f /tmp/sources.list.bootstrap && \
+    rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update -q && \
     apt-get install -qy --allow-downgrades \
@@ -79,12 +86,12 @@ RUN tar -C /usr/local -xzf go1.25.1.linux-amd64.tar.gz
 
 # create new user to avoid using root; but with sudo access and no password for convenience.
 ARG UID=1000
-RUN if [ "$UID" != "0" ] ; then useradd --uid $UID --create-home --shell /bin/bash "user" ; fi
-RUN usermod -append --groups sudo $(id -nu $UID || echo "user")
+RUN useradd -u "$UID" -m -s /usr/bin/bash -d /home/user user
+RUN usermod -aG sudo user
 RUN echo "%sudo ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-RUN HOME_DIR=$(getent passwd $UID | cut -d: -f6)
-ENV WORK_DIR="${HOME_DIR}/wspace" \
-    PATH="${HOME_DIR}/.local/bin:${PATH}"
+ENV HOME_DIR=/home/user
+ENV WORK_DIR="${HOME_DIR}/wspace"
+ENV PATH="${HOME_DIR}/.local/bin:${PATH}"
 WORKDIR ${WORK_DIR}
-RUN chown --recursive ${UID} ${WORK_DIR}
-USER ${UID}
+RUN chown -R user ${WORK_DIR}
+USER user

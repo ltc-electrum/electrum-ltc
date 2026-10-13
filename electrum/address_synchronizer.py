@@ -82,7 +82,7 @@ class AddressSynchronizer(Logger, EventListener):
     synchronizer: Optional['Synchronizer']
     verifier: Optional['SPV']
 
-    def __init__(self, db: 'WalletDB', config: 'SimpleConfig', *, name: str = None):
+    def __init__(self, db: 'WalletDB', config: 'SimpleConfig', *, name: str | None = None):
         self.db = db
         self.config = config
         self.name = name
@@ -172,7 +172,7 @@ class AddressSynchronizer(Logger, EventListener):
         return None
 
     @with_lock
-    def get_txin_value(self, txin: TxInput, *, address: str = None) -> Optional[int]:
+    def get_txin_value(self, txin: TxInput, *, address: str | None = None) -> Optional[int]:
         if txin.value_sats() is not None:
             return txin.value_sats()
         prevout_hash = txin.prevout.txid.hex()
@@ -204,6 +204,7 @@ class AddressSynchronizer(Logger, EventListener):
         assert self.network is None, "already started"
         self.network = network
         if self.network is not None:
+            assert network.config is self.config
             self.synchronizer = Synchronizer(self)
             self.verifier = SPV(self.network, self)
             self.asyncio_loop = network.asyncio_loop
@@ -274,9 +275,7 @@ class AddressSynchronizer(Logger, EventListener):
         if tx:
             tx.deserialize()
             for txin in tx._inputs:
-                tx_mined_info = self.get_tx_height(txin.prevout.txid.hex())
-                txin.block_height = tx_mined_info.height()
-                txin.block_txpos = tx_mined_info.txpos
+                txin.set_mined_info(self.get_tx_height(txin.prevout.txid.hex()))
         return tx
 
     def add_transaction(self, tx: Transaction, *, allow_unrelated=False, is_new=True) -> bool:
@@ -293,7 +292,7 @@ class AddressSynchronizer(Logger, EventListener):
         if tx_hash is None:
             raise Exception("cannot add tx without txid to wallet history")
         # For sanity, try to serialize and deserialize tx early:
-        tx_from_any(str(tx))  # see if raises (no-side-effects)
+        tx_from_any(str(tx), sanitize=False)  # see if raises (no-side-effects)
         with self.lock:
             # NOTE: returning if tx in self.transactions might seem like a good idea
             # BUT we track is_mine inputs in a txn, and during subsequent calls
@@ -457,6 +456,7 @@ class AddressSynchronizer(Logger, EventListener):
                 self.unverified_tx.pop(tx_hash, None)
                 self.unconfirmed_tx.pop(tx_hash, None)
                 self.db.remove_verified_tx(tx_hash)
+                self.invalidate_cache()
                 if self.verifier:
                     self.verifier.remove_spv_proof_for_tx(tx_hash)
         self.db.set_addr_history(addr, hist)
@@ -524,7 +524,7 @@ class AddressSynchronizer(Logger, EventListener):
         return height, txpos
 
     @classmethod
-    def tx_height_to_sort_height(cls, height: int = None):
+    def tx_height_to_sort_height(cls, height: int | None = None):
         """Return a height-like value to be used for sorting txs."""
         if height is not None:
             if height > 0:
@@ -635,19 +635,24 @@ class AddressSynchronizer(Logger, EventListener):
                 # tx was previously SPV-verified but now in mempool (probably reorg)
                 self.db.remove_verified_tx(tx_hash)
                 self.unconfirmed_tx[tx_hash] = tx_height
+                self.invalidate_cache()
                 if self.verifier:
                     self.verifier.remove_spv_proof_for_tx(tx_hash)
         else:
             if tx_height > 0:
+                self.unconfirmed_tx.pop(tx_hash, None)
                 self.unverified_tx[tx_hash] = tx_height
             else:
+                self.unverified_tx.pop(tx_hash, None)
                 self.unconfirmed_tx[tx_hash] = tx_height
+            self.invalidate_cache()
 
     @with_lock
     def remove_unverified_tx(self, tx_hash: str, tx_height: int) -> None:
         new_height = self.unverified_tx.get(tx_hash)
         if new_height == tx_height:
             self.unverified_tx.pop(tx_hash, None)
+            self.invalidate_cache()
 
     def add_verified_tx(self, tx_hash: str, info: TxMinedInfo):
         # Remove from the unverified map and add to the verified map
@@ -684,7 +689,8 @@ class AddressSynchronizer(Logger, EventListener):
                         # a status update, that will overwrite it.
                         self.unverified_tx[tx_hash] = tx_height
                         txs.add(tx_hash)
-            self.invalidate_cache()
+            if txs:
+                self.invalidate_cache()
 
         for tx_hash in txs:
             util.trigger_callback('adb_removed_verified_tx', self, tx_hash)
@@ -977,7 +983,7 @@ class AddressSynchronizer(Logger, EventListener):
             confirmed_funding_only: bool = False,
             confirmed_spending_only: bool = False,
             nonlocal_only: bool = False,
-            block_height: int = None,
+            block_height: int | None = None,
     ) -> Sequence[PartialTxInput]:
         if block_height is not None:
             # caller wants the UTXOs we had at a given height; check other parameters

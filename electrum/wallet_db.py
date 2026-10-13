@@ -34,14 +34,17 @@ from functools import partial
 import attr
 
 from . import bitcoin
-from .util import profiler, WalletFileException, multisig_type, TxMinedInfo, MyEncoder
+from . import constants
+from .util import profiler, WalletFileException, multisig_type, TxMinedInfo, MyEncoder, bfh
 from .keystore import bip44_derivation
-from .transaction import Transaction, TxOutpoint, tx_from_any, PartialTransaction, PartialTxOutput, BadHeaderMagic
+from .transaction import (Transaction, TxOutpoint, tx_from_any, PartialTransaction, PartialTxOutput, BadHeaderMagic,
+                          BCDataStream)
 from .logging import Logger
 
 from .lnutil import HTLCOwner, ChannelType, RecvMPPResolution
-from . import json_db
-from .json_db import JsonDB, locked, modifier, StoredObject, stored_in, stored_as
+from .json_db import JsonDB, locked, modifier
+from . import stored_dict
+from .stored_dict import StoredObject, stored_at, register_key, register_name
 from .plugin import run_hook, plugin_loaders
 from .version import ELECTRUM_VERSION
 from .i18n import _
@@ -69,18 +72,18 @@ class WalletUnfinished(WalletFileException):
 # seed_version is now used for the version of the wallet file
 OLD_SEED_VERSION = 4        # electrum versions < 2.0
 NEW_SEED_VERSION = 11       # electrum versions >= 2.0
-FINAL_SEED_VERSION = 70     # electrum >= 2.7 will set this to prevent
+FINAL_SEED_VERSION = 72     # electrum >= 2.7 will set this to prevent
                             # old versions from overwriting new format
 
 
-@stored_in('tx_fees', tuple)
+@stored_at('/tx_fees/*', tuple)
 class TxFeesValue(NamedTuple):
     fee: Optional[int] = None
     is_calculated_by_us: bool = False
     num_inputs: Optional[int] = None
 
 
-@stored_as('db_metadata')
+@stored_at('/db_metadata')
 @attr.s
 class DBMetadata(StoredObject):
     creation_timestamp = attr.ib(default=None, type=int)
@@ -102,18 +105,30 @@ class WalletFileExceptionVersion51(WalletFileException): pass
 
 
 # register dicts that require value conversions not handled by constructor
-json_db.register_dict('transactions', lambda x: tx_from_any(x, deserialize=False), None)
-json_db.register_dict('data_loss_protect_remote_pcp', lambda x: bytes.fromhex(x), None)
-json_db.register_dict('contacts', tuple, None)
+register_name('/transactions/*', None, lambda x: tx_from_any(x, deserialize=False, sanitize=False))
+register_name('/channels/*/data_loss_protect_remote_pcp/*', None, lambda x: bytes.fromhex(x))
+register_name('/channels/*/onion_keys/*', None, lambda x: bytes.fromhex(x))
+# register tuples, otherwise they will default to StoredList
+register_name('/contacts/*', None, tuple)
+register_name('/lightning_preimages/*', None, tuple)
 # register dicts that require key conversion
 for key in [
-        'adds', 'locked_in', 'settles', 'fails', 'fee_updates', 'buckets',
-        'unacked_updates', 'unfulfilled_htlcs', 'onion_keys']:
-    json_db.register_dict_key(key, int)
-for key in ['log']:
-    json_db.register_dict_key(key, lambda x: HTLCOwner(int(x)))
-for key in ['locked_in', 'fails', 'settles']:
-    json_db.register_parent_key(key, lambda x: HTLCOwner(int(x)))
+        '/channels/*/log/*/adds',
+        '/channels/*/log/*/locked_in',
+        '/channels/*/log/*/settles',
+        '/channels/*/log/*/fails',
+        '/channels/*/log/*/fee_updates',
+        '/channels/*/revocation_store/buckets',
+        '/channels/*/log/*/unacked_updates',
+        '/channels/*/unfulfilled_htlcs',
+        '/channels/*/onion_keys']:
+    register_key(key, int)
+for key in [
+        '/channels/*/log',
+        '/channels/*/log/*/locked_in/*',
+        '/channels/*/log/*/fails/*',
+        '/channels/*/log/*/settles/*']:
+    register_key(key, lambda x: HTLCOwner(int(x)))
 
 
 class WalletDBUpgrader(Logger):
@@ -245,6 +260,8 @@ class WalletDBUpgrader(Logger):
         self._convert_version_68()
         self._convert_version_69()
         self._convert_version_70()
+        self._convert_version_71()
+        self._convert_version_72()
         self.put('seed_version', FINAL_SEED_VERSION)  # just to be sure
 
     def _convert_wallet_type(self):
@@ -903,7 +920,7 @@ class WalletDBUpgrader(Logger):
         self.data['seed_version'] = 44
 
     def _convert_version_45(self):
-        from .lnaddr import lndecode
+        from .bolt11 import decode_bolt11_invoice
         if not self._is_upgrade_method_needed(44, 44):
             return
         swaps = self.data.get('submarine_swaps', {})
@@ -919,7 +936,7 @@ class WalletDBUpgrader(Logger):
                 outputs = item['outputs'] if not is_lightning else None
                 bip70 = item['bip70'] if not is_lightning else None
                 if is_lightning:
-                    lnaddr = lndecode(item['invoice'])
+                    lnaddr = decode_bolt11_invoice(item['invoice'])
                     amount_msat = lnaddr.get_amount_msat()
                     timestamp = lnaddr.date
                     exp_delay = lnaddr.get_expiry()
@@ -972,7 +989,7 @@ class WalletDBUpgrader(Logger):
         self.data['seed_version'] = 46
 
     def _convert_version_47(self):
-        from .lnaddr import lndecode
+        from .bolt11 import decode_bolt11_invoice
         if not self._is_upgrade_method_needed(46, 46):
             return
         # recalc keys of requests
@@ -980,7 +997,7 @@ class WalletDBUpgrader(Logger):
         for key, item in list(requests.items()):
             lnaddr = item.get('lightning_invoice')
             if lnaddr:
-                lnaddr = lndecode(lnaddr)
+                lnaddr = decode_bolt11_invoice(lnaddr)
                 rhash = lnaddr.paymenthash.hex()
                 if key != rhash:
                     requests[rhash] = item
@@ -1021,7 +1038,7 @@ class WalletDBUpgrader(Logger):
         self.data['seed_version'] = 50
 
     def _convert_version_51(self):
-        from .lnaddr import lndecode
+        from .bolt11 import decode_bolt11_invoice
         if not self._is_upgrade_method_needed(50, 50):
             return
         requests = self.data.get('payment_requests', {})
@@ -1030,7 +1047,7 @@ class WalletDBUpgrader(Logger):
             if lightning_invoice is None:
                 payment_hash = None
             else:
-                lnaddr = lndecode(lightning_invoice)
+                lnaddr = decode_bolt11_invoice(lightning_invoice)
                 payment_hash = lnaddr.paymenthash.hex()
             item['payment_hash'] = payment_hash
         self.data['seed_version'] = 51
@@ -1400,6 +1417,69 @@ class WalletDBUpgrader(Logger):
             connection['budget_spends'] = new_budget_spends
         self.data['seed_version'] = 70
 
+    def _convert_version_71(self):
+        """Save 'genesis_blockhash' in DB."""
+        if not self._is_upgrade_method_needed(70, 70):
+            return
+        # first, check we are trying to open this DB on the correct chain (mainnet vs testnet)
+        addresses = self.data.get("addresses", {})
+        if self.data['wallet_type'] == 'imported':
+            recv_addrs = list(addresses.keys())
+        else:
+            recv_addrs = addresses.get("receiving", [])
+        if len(recv_addrs) > 0:
+            first_address = recv_addrs[0]
+            if not bitcoin.is_address(first_address):
+                neutered_addr = first_address[:5] + '..' + first_address[-2:]
+                raise WalletFileException(
+                    f"The addresses in this wallet are not bitcoin addresses. "
+                    f"e.g. {neutered_addr} (len={len(first_address)})")
+        # if so, save genesis hash
+        self.data['genesis_blockhash'] = constants.net.GENESIS
+        self.data['seed_version'] = 71
+
+    def _convert_version_72(self):
+        """Serialize imported channel backups into their internal binary blob format (hex), instead of json
+        StoredObjects."""
+        if not self._is_upgrade_method_needed(71, 71):
+            return
+
+        def _serialize_imported_channel_backup(cb: dict) -> str:
+            # this mirrors the wire format read by lnutil.ImportedChannelBackupStorage.from_bytes.
+            if cb['multisig_funding_privkey'] is not None:
+                version = 2
+            elif cb['local_payment_pubkey'] is not None:
+                version = 1
+            else:
+                version = 0
+            vds = BCDataStream()
+            vds.write_uint16(version)
+            vds.write_boolean(cb['is_initiator'])
+            vds.write_bytes(bfh(cb['privkey']), 32)
+            vds.write_bytes(bfh(cb['channel_seed']), 32)
+            vds.write_bytes(bfh(cb['node_id']), 33)
+            vds.write_bytes(bfh(cb['funding_txid']), 32)
+            # note: Electrum < 4.4.0 parsed the uint16 fields as int16 (see 5a4c39cb94), so
+            # imported backups may hold negative values (e.g. port 42069 stored as -23467): mask them
+            vds.write_uint16(cb['funding_index'] & 0xffff)
+            vds.write_string(cb['funding_address'])
+            vds.write_bytes(bfh(cb['remote_payment_pubkey']), 33)
+            vds.write_bytes(bfh(cb['remote_revocation_pubkey']), 33)
+            vds.write_uint16(cb['local_delay'] & 0xffff)
+            vds.write_uint16(cb['remote_delay'] & 0xffff)
+            vds.write_string(cb['host'])
+            vds.write_uint16(cb['port'] & 0xffff)
+            if version >= 1:
+                vds.write_bytes(bfh(cb['local_payment_pubkey']), 33)
+            if version >= 2:
+                vds.write_bytes(bfh(cb['multisig_funding_privkey']), 32)
+            return bytes(vds.input).hex()
+
+        channel_backups = self.data.get('imported_channel_backups', {})
+        for channel_id, storage in channel_backups.items():
+            channel_backups[channel_id] = _serialize_imported_channel_backup(storage)
+        self.data['seed_version'] = 72
+
     def _convert_imported(self):
         if not self._is_upgrade_method_needed(0, 13):
             return
@@ -1503,6 +1583,7 @@ def upgrade_wallet_db(data: dict, do_upgrade: bool) -> Tuple[dict, bool]:
     if len(data) == 0:
         # create new DB
         data['seed_version'] = FINAL_SEED_VERSION
+        data["genesis_blockhash"] = constants.net.GENESIS
         # store this for debugging purposes
         v = DBMetadata(
             creation_timestamp=int(time.time()),
@@ -1511,6 +1592,13 @@ def upgrade_wallet_db(data: dict, do_upgrade: bool) -> Tuple[dict, bool]:
         assert data.get("db_metadata", None) is None
         data["db_metadata"] = v.to_json()
         was_upgraded = True
+    # Test mainnet/testnet mixup. Do this before DB upgrades, as those might assume
+    # network magic bytes (e.g. if they parse an address or an xpub).
+    if data.get("genesis_blockhash", None) not in (constants.net.GENESIS, None):
+        raise WalletFileException(
+            _("This wallet file was created for a different network/chain.\n"
+              "Current chain: {}").format(constants.net.NET_NAME)
+        )
 
     dbu = WalletDBUpgrader(data)
     if dbu.requires_split():
@@ -1699,7 +1787,7 @@ class WalletDB(JsonDB):
         assert isinstance(tx, Transaction), tx
         # note that tx might be a PartialTransaction
         # serialize and de-serialize tx now. this might e.g. convert a complete PartialTx to a Tx
-        tx = tx_from_any(str(tx))
+        tx = tx_from_any(str(tx), sanitize=False)
         if not tx_hash:
             raise Exception("trying to add tx to db without txid")
         # don't allow overwriting complete tx with partial tx
@@ -1785,6 +1873,7 @@ class WalletDB(JsonDB):
     @modifier
     def add_tx_fee_from_server(self, txid: str, fee_sat: Optional[int]) -> None:
         assert isinstance(txid, str)
+        assert fee_sat is None or isinstance(fee_sat, int)
         # note: when called with (fee_sat is None), rm currently saved value
         if txid not in self.tx_fees:
             self.tx_fees[txid] = TxFeesValue()

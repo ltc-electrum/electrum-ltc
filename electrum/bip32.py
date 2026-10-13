@@ -156,7 +156,13 @@ class BIP32Node(NamedTuple):
             xtype = 'p2wpkh'
         if not allow_custom_headers and xtype != "standard":
             raise ValueError(f"only standard xpub/xprv allowed. found custom xtype={xtype}")
+        if depth == 0 and (child_number != bytes(4) or fingerprint != bytes(4)):
+            raise BitcoinException('Invalid extended key: a depth-0 (master) key must have '
+                                   'zero child number and zero parent fingerprint')
         if is_private:
+            if xkey[13 + 32] != 0:
+                raise BitcoinException('Invalid extended private key: '
+                                       'key data must be prefixed with 0x00')
             eckey = ecc.ECPrivkey(xkey[13 + 33:])
         else:
             eckey = ecc.ECPubkey(xkey[13 + 32:])
@@ -425,9 +431,12 @@ def root_fp_and_der_prefix_from_xkey(xkey: str) -> Tuple[Optional[str], Optional
     return root_fingerprint, derivation_prefix
 
 
-def is_xkey_consistent_with_key_origin_info(xkey: str, *,
-                                            derivation_prefix: str = None,
-                                            root_fingerprint: str = None) -> bool:
+def is_xkey_consistent_with_key_origin_info(
+    xkey: str,
+    *,
+    derivation_prefix: str | None = None,
+    root_fingerprint: str | None = None,
+) -> bool:
     bip32node = BIP32Node.from_xkey(xkey)
     int_path = None
     if derivation_prefix is not None:

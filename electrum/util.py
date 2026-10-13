@@ -27,8 +27,11 @@ import logging
 import os
 import sys
 import re
+import subprocess
 from collections import defaultdict, OrderedDict
 from concurrent.futures.process import ProcessPoolExecutor
+import typing
+from pathlib import Path
 from typing import (
     NamedTuple, Union, TYPE_CHECKING, Tuple, Optional, Callable, Any, Sequence, Dict, Generic, TypeVar, List, Iterable,
     Set, Awaitable
@@ -49,11 +52,11 @@ import ssl
 import ipaddress
 from ipaddress import IPv4Address, IPv6Address
 import random
-import secrets
 import functools
 from functools import partial
 from abc import abstractmethod, ABC
 import enum
+import contextlib
 from contextlib import nullcontext, suppress
 import traceback
 import inspect
@@ -61,12 +64,14 @@ import weakref
 
 import aiohttp
 from aiohttp_socks import ProxyConnector, ProxyType
+from aiohttp_socks import ProxyConnectionError, ProxyTimeoutError, ProxyError
 import aiorpcx
 import certifi
 import dns.asyncresolver
 
 from .i18n import _
 from .logging import get_logger, Logger
+from . import crandom
 
 if TYPE_CHECKING:
     from .network import Network, ProxySettings
@@ -546,14 +551,18 @@ def android_data_dir():
     return PythonActivity.mActivity.getFilesDir().getPath() + '/data'
 
 
-def ensure_sparse_file(filename):
+def ensure_sparse_file(file_path: str | Path):
     # On modern Linux, no need to do anything.
     # On Windows, need to explicitly mark file.
     if os.name == "nt":
         try:
-            os.system('fsutil sparse setflag "{}" 1'.format(filename))
-        except Exception as e:
-            _logger.info(f'error marking file {filename} as sparse: {e}')
+            subprocess.run(
+                ['fsutil', 'sparse', 'setflag', file_path, '1'],
+                check=True,
+                capture_output=True,
+            )
+        except (subprocess.CalledProcessError, OSError) as e:
+            _logger.warning(f'error marking file {file_path} as sparse: {e}')
 
 
 def get_headers_dir(config):
@@ -602,6 +611,13 @@ def get_new_wallet_name(wallet_folder: str) -> str:
         else:
             break
     return filename
+
+
+def is_hidden_wallet_path(wallet_path: Any) -> bool:
+    if not isinstance(wallet_path, str):
+        return False
+    fname = os.path.basename(wallet_path)
+    return fname.startswith(".")
 
 
 def is_android_debug_apk() -> bool:
@@ -653,7 +669,7 @@ def to_string(x, enc) -> str:
         raise TypeError("Not a string or bytes like object")
 
 
-def to_bytes(something, encoding='utf8') -> bytes:
+def to_bytes(something: str | bytes | bytearray, encoding='utf8') -> bytes:
     """
     cast string to bytes() like object, but for python2 support it's bytearray copy
     """
@@ -900,6 +916,10 @@ def format_time(timestamp: Union[int, float, None]) -> str:
     return date.isoformat(' ', timespec="minutes") if date else _("Unknown")
 
 
+def now() -> int:
+    return int(time.time())
+
+
 def age(
     from_date: Union[int, float, None],  # POSIX timestamp
     *,
@@ -1144,7 +1164,7 @@ def make_dir(path, *, allow_symlink=True):
     """
     if not os.path.exists(path):
         if not allow_symlink and os.path.islink(path):
-            raise Exception('Dangling link: ' + path)
+            raise FileNotFoundError('Dangling link: ' + path)
         try:
             os.mkdir(path)
         except FileExistsError:
@@ -1229,8 +1249,8 @@ class TxMinedInfo:
             return h
 
     def short_id(self) -> Optional[str]:
-        if self.txpos is not None and self.txpos >= 0:
-            assert self.height() > 0
+        """'<height>x<txpos>' if mined and SPV-verified, else None."""
+        if self.height() > 0 and self.txpos is not None and self.txpos >= 0:
             return f"{self.height()}x{self.txpos}"
         return None
 
@@ -1315,7 +1335,7 @@ def make_aiohttp_proxy_connector(proxy: 'ProxySettings', ssl_context: Optional[s
     )
 
 
-def make_aiohttp_session(proxy: Optional['ProxySettings'], headers=None, timeout=None):
+def _make_aiohttp_session(proxy: Optional['ProxySettings'], headers=None, timeout=None):
     if headers is None:
         headers = {'User-Agent': 'Electrum'}
     if timeout is None:
@@ -1332,6 +1352,23 @@ def make_aiohttp_session(proxy: Optional['ProxySettings'], headers=None, timeout
         connector = aiohttp.TCPConnector(ssl=ssl_context)
 
     return aiohttp.ClientSession(headers=headers, timeout=timeout, connector=connector)
+
+
+@contextlib.asynccontextmanager
+async def make_aiohttp_session(proxy: Optional['ProxySettings'], headers=None, timeout=None):
+    """
+    Caller should typically handle at least:
+    - aiohttp.ClientError
+    - asyncio.TimeoutError
+    """
+    try:
+        async with _make_aiohttp_session(proxy, headers=headers, timeout=timeout) as session:
+            yield session
+    except (ProxyConnectionError, ProxyTimeoutError, ProxyError) as e:
+        # We unify all proxy-related exceptions to a single type.
+        # Maybe it would be better to unify to ProxyError, but ~all call sites already expect aiohttp.ClientError,
+        # and that is a generic http-related error that we usually display the str() of, so let's just reuse that.
+        raise aiohttp.ClientError(f"proxy error: {repr(e)}") from e
 
 
 class OldTaskGroup(aiorpcx.TaskGroup):
@@ -1820,6 +1857,36 @@ class OrderedDictWithIndex(OrderedDict):
         return ret
 
 
+T = typing.TypeVar("T")
+
+class OrderedSet(typing.MutableSet[T]):
+    """A set that preserves insertion order by internally using a dict."""
+
+    def __init__(self, iterable: typing.Iterable[T] = ()):
+        self._d = dict.fromkeys(iterable)
+
+    def add(self, value: T) -> None:
+        self._d[value] = None
+
+    def discard(self, value: T) -> None:
+        self._d.pop(value, None)
+
+    def __contains__(self, value: object) -> bool:
+        return self._d.__contains__(value)
+
+    def __len__(self) -> int:
+        return self._d.__len__()
+
+    def __iter__(self) -> typing.Iterator[T]:
+        return self._d.__iter__()
+
+    def __str__(self):
+        return f"{{{', '.join(str(i) for i in self)}}}"
+
+    def __repr__(self):
+        return f"<OrderedSet {self}>"
+
+
 def make_object_immutable(obj):
     """Makes the passed object immutable recursively."""
     allowed_types = (
@@ -1904,16 +1971,6 @@ async def resolve_dns_srv(host: str):
     return [dict_from_srv_record(srv) for srv in srv_records]
 
 
-def randrange(bound: int) -> int:
-    """Return a random integer k such that 1 <= k < bound, uniformly
-    distributed across that range.
-    This is guaranteed to be cryptographically strong.
-    """
-    # secrets.randbelow(bound) returns a random int: 0 <= r < bound,
-    # hence transformations:
-    return secrets.randbelow(bound - 1) + 1
-
-
 class CallbackManager(Logger):
     # callbacks set by the GUI or any thread
     # guarantee: the callbacks will always get triggered from the asyncio thread.
@@ -1944,6 +2001,8 @@ class CallbackManager(Logger):
                 self._wcallbacks[event].add(wcb)
 
     def unregister_callback(self, cb: Callable) -> None:
+        # FIXME if trigger_callback() was just called for this cb, it could race so that
+        #       the cb gets code exec *after* unregister_callback() returns.
         wcb = self._wcb_from_any_callback(cb)
         with self.callback_lock:
             # note: ^ callback_lock needs to be re-entrant, as we can now trigger __del__, which also takes the lock
@@ -2136,6 +2195,7 @@ class ESocksProxy(aiorpcx.SOCKSProxy):
         username, pw = proxy.user, proxy.password
         if not username or not pw:
             # is_proxy_tor is tri-state; None indicates it is still probing the proxy to test for TOR
+            # FIXME race: if is_proxy_tor is None, we should wait until it gets set. Instead now we reuse Tor circuits.
             if network.is_proxy_tor:
                 auth = aiorpcx.socks.SOCKSRandomAuth()
             else:
@@ -2316,10 +2376,10 @@ def nostr_pow_worker(nonce, nostr_pubk, target_bits, hash_function, hash_len_bit
             digest = hash_function(hash_preimage + nonce.to_bytes(32, 'big')).digest()
             if int.from_bytes(digest, 'big') < (1 << (hash_len_bits - target_bits)):
                 shutdown.set()
-                return hash, nonce
+                return nonce
             nonce += 1
         if shutdown.is_set():
-            return None, None
+            return None
 
 
 async def gen_nostr_ann_pow(nostr_pubk: bytes, target_bits: int) -> Tuple[int, int]:
@@ -2352,16 +2412,21 @@ async def gen_nostr_ann_pow(nostr_pubk: bytes, target_bits: int) -> Tuple[int, i
             if start_nonce > max_nonce:  # make sure we don't go over the max_nonce
                 start_nonce = random.randint(0, int(max_nonce * 0.75))
 
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        hash_res, nonce_res = done.pop().result()
+        # workers that observe the shutdown event return None; their results can be
+        # delivered before the winner's own result, so wait for all workers and
+        # collect the result that carries a nonce.
+        done, _pending = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
+        nonce_res = next((n for n in (fut.result() for fut in done) if n is not None), None)
         executor.shutdown(wait=False, cancel_futures=True)
 
+    if nonce_res is None:
+        raise Exception("nostr announcement PoW mining failed: no worker returned a nonce")
     return nonce_res, get_nostr_ann_pow_amount(nostr_pubk, nonce_res)
 
 
 def get_nostr_ann_pow_amount(nostr_pubk: bytes, nonce: Optional[int]) -> int:
     """Return the amount of leading zero bits for a nostr announcement PoW."""
-    if not nonce:
+    if nonce is None or nonce < 0:
         return 0
     hash_function = hashlib.sha256
     hash_len_bits = 256

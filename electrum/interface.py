@@ -129,9 +129,13 @@ def assert_hex_str(val: Any) -> None:
         raise RequestCorrupted(f'{val!r} should be a hex str')
 
 
-def assert_dict_contains_field(d: Any, *, field_name: str) -> Any:
+def assert_dict(d: Any) -> None:
     if not isinstance(d, dict):
         raise RequestCorrupted(f'{d!r} should be a dict')
+
+
+def assert_dict_contains_field(d: Any, *, field_name: str) -> Any:
+    assert_dict(d)
     if field_name not in d:
         raise RequestCorrupted(f'required field {field_name!r} missing from dict')
     return d[field_name]
@@ -164,23 +168,31 @@ class ChainResolutionMode(enum.Enum):
 
 class NotificationSession(RPCSession):
 
+    COST_INCOMING_REQUEST = 100
+
     def __init__(self, *args, interface: 'Interface', **kwargs):
         super(NotificationSession, self).__init__(*args, **kwargs)
-        self.subscriptions = defaultdict(list)
-        self.cache = {}
+        self.subscriptions = defaultdict(list)  # type: defaultdict[str, list[asyncio.Queue]]
+        self.subs_cache = {}  # type: dict[str, Any]
         self._msg_counter = itertools.count(start=1)
         self.interface = interface
         self.taskgroup = interface.taskgroup
-        self.cost_hard_limit = 0  # disable aiorpcx resource limits
+        self.set_strict_resource_limits()
+
+        # To log pre-processed json traffic, uncomment:
+        #self.logger.setLevel(logging.DEBUG)  # from aiorpcx
+        #self.verbosity = 4
 
     async def handle_request(self, request):
+        # note: we get called for incoming Requests and Notifications. (not for Responses)
         self.maybe_log(f"--> {request}")
+        self.bump_cost(self.COST_INCOMING_REQUEST)
         try:
             if isinstance(request, Notification):
                 params, result = request.args[:-1], request.args[-1]
                 key = self.get_hashable_key_for_rpc_call(request.method, params)
                 if key in self.subscriptions:
-                    self.cache[key] = result
+                    self.subs_cache[key] = result
                     for queue in self.subscriptions[key]:
                         await queue.put(request.args)
                 else:
@@ -222,16 +234,18 @@ class NotificationSession(RPCSession):
         self.max_send_delay = timeout
 
     async def subscribe(self, method: str, params: List, queue: asyncio.Queue):
-        # note: until the cache is written for the first time,
-        # each 'subscribe' call might make a request on the network.
         key = self.get_hashable_key_for_rpc_call(method, params)
+        # note: multiple Synchronizers (from different Wallet objects) might sub to the same key,
+        #       hence subscriptions map key->list[queue]
         self.subscriptions[key].append(queue)
-        if key in self.cache:
-            result = self.cache[key]
-        else:
+        if key not in self.subs_cache:
+            # note: until subs_cache is written for the first time,
+            #       each 'subscribe' call might make a request on the network.
             result = await self.send_request(method, params)
-            self.cache[key] = result
-        await queue.put(params + [result])
+            # don't override what was already set in handle_request, it might be newer than the send_request response
+            if key not in self.subs_cache:
+                self.subs_cache[key] = result
+        await queue.put(params + [self.subs_cache[key]])
 
     def unsubscribe(self, queue):
         """Unsubscribe a callback to free object references to enable GC."""
@@ -257,7 +271,7 @@ class NotificationSession(RPCSession):
         assert max_size > 500_000, f"{max_size=} (< 500_000) is too small"
         return NewlineFramer(max_size=max_size)
 
-    async def close(self, *, force_after: int = None):
+    async def close(self, *, force_after: int | None = None):
         """Closes the connection and waits for it to be closed.
         We try to flush buffered data to the wire, which can take some time.
         """
@@ -269,6 +283,40 @@ class NotificationSession(RPCSession):
             #       wait until this timeout is triggered
             force_after = 1  # seconds
         await super().close(force_after=force_after)
+
+    def set_strict_resource_limits(self):
+        # Apply strict resource limits to each interface.
+        # - This limits incoming bandwidth, and indirectly limits e.g. memory usage.
+        #   FIXME limit memory usage directly
+        #   - confusingly for our "client" use case, outgoing bandwidth is also counted,
+        #     however any meaningful limiting only happens in _throttled_message->_incoming_concurrency,
+        #     which only gets called on inc-notifications and inc-requests (reqs we should not receive though).
+        #   - processing an inc-notification or an inc-request also incurs COST_INCOMING_REQUEST.
+        # - These limits are intended for the non-main secondary interfaces,
+        #   as the main interface is expected to have a lot of traffic.
+        # - Secondary interfaces should generate minimal traffic:
+        #   as they are only used for polled fee estimates (minimal data) and header subs (minimal data).
+        #   Note a header notification can force us into fork resolution and downloading lots
+        #   of headers. The initial headers download might also happen on any interface.
+        #   Headers download uses non-trivial amounts of data, e.g. 100k x 160 hex headers take 16 MB.
+        assert hasattr(NotificationSession, "cost_hard_limit")  # in base class
+        self.bw_cost_per_byte = 1 / 1_000
+        self.cost_hard_limit = 30_000  # 30 MB of bandwidth, in+out
+        self.cost_soft_limit = self.cost_hard_limit - 1  # this effectively disables the soft limit
+        self.cost_decay_per_sec = self.cost_hard_limit / 600  # refund over 10 minutes
+
+    def remove_resource_limits(self):
+        assert hasattr(NotificationSession, "cost_hard_limit")  # in base class
+        # remove static limits:
+        self.cost_hard_limit = 0
+        self.cost_soft_limit = 0
+        # try to reset costs incurred so far (e.g. when promoting a non-main interface to main):
+        self._cost_last = self.cost = 0
+        self._cost_fraction = 0
+        self._incoming_concurrency.set_target(self.initial_concurrent)
+
+    def on_disconnect_due_to_excessive_session_cost(self):
+        self.interface.logger.info(f"closing session over resource usage. cost={self.cost}")
 
 
 class NetworkException(Exception): pass
@@ -453,7 +501,7 @@ class PaddedRSTransport(RSTransport):
 
 class ServerAddr:
 
-    def __init__(self, host: str, port: Union[int, str], *, protocol: str = None):
+    def __init__(self, host: str, port: Union[int, str], *, protocol: str | None = None):
         assert isinstance(host, str), repr(host)
         if protocol is None:
             protocol = 's'
@@ -562,6 +610,7 @@ class Interface(Logger):
         assert network.config.path
         self.cert_path = _get_cert_path_for_host(config=network.config, host=self.host)
         self.blockchain = None  # type: Optional[Blockchain]
+        self.bc_mgr = network.bc_mgr
         self._requested_chunks = set()  # type: Set[int]
         self.network = network
         self.session = None  # type: Optional[NotificationSession]
@@ -752,9 +801,9 @@ class Interface(Logger):
             return
 
         assert self.tip_header
-        chain = blockchain.check_header(self.tip_header)
+        chain = self.bc_mgr.check_header(self.tip_header)
         if not chain:
-            self.blockchain = blockchain.get_best_chain()
+            self.blockchain = self.bc_mgr.get_best_chain()
         else:
             self.blockchain = chain
         assert self.blockchain is not None
@@ -975,6 +1024,11 @@ class Interface(Logger):
         return (self.network.interface == self or
                 self.network.interface is None and self.network.default_server == self.server)
 
+    def mark_as_main_server(self) -> None:
+        """Called when the network switches to this interface."""
+        assert self.session
+        self.session.remove_resource_limits()
+
     async def open_session(
         self,
         *,
@@ -1079,7 +1133,7 @@ class Interface(Logger):
             self.network.update_fee_estimates()
             await asyncio.sleep(60)
 
-    async def close(self, *, force_after: int = None):
+    async def close(self, *, force_after: int | None = None):
         """Closes the connection and waits for it to be closed.
         We try to flush buffered data to the wire, which can take some time.
         """
@@ -1092,11 +1146,18 @@ class Interface(Logger):
         await self.session.subscribe('blockchain.headers.subscribe', [], header_queue)
         while True:
             item = await header_queue.get()
-            raw_header = item[0]
-            height = raw_header['height']
-            header_bytes = bfh(raw_header['hex'])
+            # parse response
+            assert len(item) == 1
+            resp_header = item[0]
+            assert_dict(resp_header)
+            height = assert_dict_contains_field(resp_header, field_name='height')
+            assert_non_negative_integer(height)
+            header_hex = assert_dict_contains_field(resp_header, field_name='hex')
+            header_bytes = bfh(header_hex)
+            assert len(resp_header) == 2, f"resp_header contains redundant fields. got {resp_header.keys()}"
             header_dict = blockchain.deserialize_header(header_bytes, height)
-            self.tip_header = header_dict
+            # process header
+            self.tip_header = header_dict  # TODO assert it got changed to something different?
             self.tip = height
             if self.tip < constants.net.max_checkpoint():
                 raise GracefulDisconnect(
@@ -1183,7 +1244,7 @@ class Interface(Logger):
         )
         header = await self.get_block_header(height, mode=ChainResolutionMode.CATCHUP)
 
-        chain = blockchain.check_header(header)
+        chain = self.bc_mgr.check_header(header)
         if chain:
             self.blockchain = chain
             # note: there is an edge case here that is not handled.
@@ -1192,12 +1253,12 @@ class Interface(Logger):
             # this situation resolves itself on the next block
             return ChainResolutionMode.CATCHUP, height+1
 
-        can_connect = blockchain.can_connect(header)
+        can_connect = self.bc_mgr.can_connect(header)
         if not can_connect:
             self.logger.info(f"can't connect new block: {height=}")
             height, header, bad, bad_header = await self._search_headers_backwards(height, header=header)
-            chain = blockchain.check_header(header)
-            can_connect = blockchain.can_connect(header)
+            chain = self.bc_mgr.check_header(header)
+            can_connect = self.bc_mgr.can_connect(header)
             assert chain or can_connect
         if can_connect:
             height += 1
@@ -1216,7 +1277,7 @@ class Interface(Logger):
         chain: Optional[Blockchain],
     ) -> Tuple[int, int, dict]:
         assert bad == bad_header['block_height']
-        _assert_header_does_not_check_against_any_chain(bad_header)
+        self._assert_header_does_not_check_against_any_chain(bad_header)
 
         self.blockchain = chain
         good = height
@@ -1228,7 +1289,7 @@ class Interface(Logger):
                 await self._maybe_warm_headers_cache(
                     from_height=good, to_height=bad, mode=ChainResolutionMode.BINARY)
             header = await self.get_block_header(height, mode=ChainResolutionMode.BINARY)
-            chain = blockchain.check_header(header)
+            chain = self.bc_mgr.check_header(header)
             if chain:
                 self.blockchain = chain
                 good = height
@@ -1240,7 +1301,7 @@ class Interface(Logger):
 
         if not self.blockchain.can_connect(bad_header, check_height=False):
             raise Exception('unexpected bad header during binary: {}'.format(bad_header))
-        _assert_header_does_not_check_against_any_chain(bad_header)
+        self._assert_header_does_not_check_against_any_chain(bad_header)
 
         self.logger.info(f"binary search exited. good {good}, bad {bad}. {chain=}")
         return good, bad, bad_header
@@ -1253,7 +1314,7 @@ class Interface(Logger):
     ) -> Tuple[ChainResolutionMode, int]:
         assert good + 1 == bad
         assert bad == bad_header['block_height']
-        _assert_header_does_not_check_against_any_chain(bad_header)
+        self._assert_header_does_not_check_against_any_chain(bad_header)
         # 'good' is the height of a block 'good_header', somewhere in self.blockchain.
         # bad_header connects to good_header; bad_header itself is NOT in self.blockchain.
 
@@ -1285,8 +1346,8 @@ class Interface(Logger):
                 height = constants.net.max_checkpoint()
                 checkp = True
             header = await self.get_block_header(height, mode=ChainResolutionMode.BACKWARD)
-            chain = blockchain.check_header(header)
-            can_connect = blockchain.can_connect(header)
+            chain = self.bc_mgr.check_header(header)
+            can_connect = self.bc_mgr.can_connect(header)
             if chain or can_connect:
                 return False
             if checkp:
@@ -1294,8 +1355,9 @@ class Interface(Logger):
             return True
 
         bad, bad_header = height, header
-        _assert_header_does_not_check_against_any_chain(bad_header)
-        with blockchain.blockchains_lock: chains = list(blockchain.blockchains.values())
+        self._assert_header_does_not_check_against_any_chain(bad_header)
+        with self.bc_mgr.blockchains_lock:
+            chains = list(self.bc_mgr.blockchains.values())
         local_max = max([0] + [x.height() for x in chains])
         height = min(local_max + 1, height - 1)
         assert height >= 0
@@ -1309,7 +1371,7 @@ class Interface(Logger):
             height -= delta
             delta *= 2
 
-        _assert_header_does_not_check_against_any_chain(bad_header)
+        self._assert_header_does_not_check_against_any_chain(bad_header)
         self.logger.info(f"exiting backward mode at {height}")
         return height, header, bad, bad_header
 
@@ -1627,11 +1689,30 @@ class Interface(Logger):
             res = int(res * bitcoin.COIN)
         return res
 
+    async def get_server_peers(self) -> list[tuple[str, str, Sequence[str]]]:
+        # do request
+        peers = await self.session.send_request('server.peers.subscribe')
+        # check response
+        assert_list_or_tuple(peers)
+        for peer in peers:
+            assert_list_or_tuple(peer)
+            if len(peer) != 3:
+                raise RequestCorrupted(f"found peer in list with unexpected length. {peer=!r}")
+            ip_addr, hostname, features = peer
+            if not isinstance(ip_addr, str):
+                raise RequestCorrupted(f"peer ip_addr should be str, got {ip_addr!r}")
+            if not isinstance(hostname, str):
+                raise RequestCorrupted(f"peer hostname should be str, got {hostname!r}")
+            assert_list_or_tuple(features)
+            for feat in features:
+                if not isinstance(feat, str):
+                    raise RequestCorrupted(f"peer feature should be str, got {feat!r}")
+        return [tuple(peer) for peer in peers]
 
-def _assert_header_does_not_check_against_any_chain(header: dict) -> None:
-    chain_bad = blockchain.check_header(header)
-    if chain_bad:
-        raise Exception('bad_header must not check!')
+    def _assert_header_does_not_check_against_any_chain(self, header: dict) -> None:
+        chain_bad = self.bc_mgr.check_header(header)
+        if chain_bad:
+            raise Exception('bad_header must not check!')
 
 
 def sanitize_tx_broadcast_response(server_msg) -> str:

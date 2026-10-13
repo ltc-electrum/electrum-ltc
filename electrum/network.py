@@ -47,10 +47,9 @@ from .util import (
     NetworkRetryManager, error_text_str_to_safe_str, detect_tor_socks_proxy
 )
 from . import constants
-from . import blockchain
 from . import dns_hacks
 from .transaction import Transaction
-from .blockchain import Blockchain
+from .blockchain import Blockchain, BlockchainManager
 from .interface import (
     Interface, PREFERRED_NETWORK_PROTOCOL, RequestTimedOut, NetworkTimeout, BUCKET_NAME_OF_ONION_SERVERS,
     NetworkException, RequestCorrupted, ServerAddr, TxBroadcastError, KNOWN_ELEC_PROTOCOL_TRANSPORTS,
@@ -86,12 +85,12 @@ class ConnectionState(IntEnum):
     CONNECTED     = 2
 
 
-def parse_servers(result: Sequence[Tuple[str, str, List[str]]]) -> Dict[str, dict]:
+def parse_servers(proto_resp: Sequence[Tuple[str, str, Sequence[str]]]) -> Dict[str, dict]:
     """Convert servers list (from protocol method "server.peers.subscribe") into dict format.
     Also validate values, such as IP addresses and ports.
     """
     servers = {}
-    for item in result:
+    for item in proto_resp:
         host = item[1]
         out = {}
         version = None
@@ -186,7 +185,7 @@ class ProxySettings:
     def serialize_proxy_cfgstr(self):
         return ':'.join([self.mode, self.host, self.port])
 
-    def deserialize_proxy_cfgstr(self, s: Optional[str], user: str = None, password: str = None) -> None:
+    def deserialize_proxy_cfgstr(self, s: str | None, user: str | None = None, password: str | None = None) -> None:
         if s is None or (isinstance(s, str) and s.lower() == 'none'):
             self.set_defaults()
             self.user = user
@@ -349,13 +348,11 @@ class Network(Logger, NetworkRetryManager[ServerAddr]):
         self.config = config
         self.daemon = daemon
 
-        blockchain.read_blockchains(self.config)
-        blockchain.init_headers_file_for_best_chain()
-        self.logger.info(f"blockchains {list(map(lambda b: b.forkpoint, blockchain.blockchains.values()))}")
-        self._blockchain_preferred_block = self.config.BLOCKCHAIN_PREFERRED_BLOCK  # type: Dict[str, Any]
+        self.bc_mgr = BlockchainManager.from_config(self.config)
+        self._blockchain_preferred_block = self.config.BLOCKCHAIN_PREFERRED_BLOCK  # type: Optional[Dict[str, Any]]
         if self._blockchain_preferred_block is None:
             self._set_preferred_chain(None)
-        self._blockchain = blockchain.get_best_chain()
+        self._blockchain = self.bc_mgr.get_best_chain()
 
         self._allowed_protocols = {PREFERRED_NETWORK_PROTOCOL}
 
@@ -520,7 +517,7 @@ class Network(Logger, NetworkRetryManager[ServerAddr]):
             self.donation_address = await interface.get_donation_address()
 
         async def get_server_peers():
-            server_peers = await session.send_request('server.peers.subscribe')
+            server_peers = await interface.get_server_peers()
             random.shuffle(server_peers)
             max_accepted_peers = len(constants.net.DEFAULT_SERVERS) + NUM_RECENT_SERVERS
             server_peers = server_peers[:max_accepted_peers]
@@ -863,8 +860,8 @@ class Network(Logger, NetworkRetryManager[ServerAddr]):
         if pref_height == 0:
             return
         # maybe try switching chains; starting with most desirable first
-        matching_chains = blockchain.get_chains_that_contain_header(pref_height, pref_hash)
-        chains_to_try = list(matching_chains) + [blockchain.get_best_chain()]
+        matching_chains = self.bc_mgr.get_chains_that_contain_header(pref_height, pref_hash)
+        chains_to_try = list(matching_chains) + [self.bc_mgr.get_best_chain()]
         for rank, chain in enumerate(chains_to_try):
             # check if main interface is already on this fork
             if self.interface.blockchain == chain:
@@ -891,6 +888,7 @@ class Network(Logger, NetworkRetryManager[ServerAddr]):
 
         # Stop any current interface in order to terminate subscriptions,
         # and to cancel tasks in interface.taskgroup.
+        # This also indirectly undoes i.mark_as_main_server().
         if old_server and old_server != server:
             # don't wait for old_interface to close as that might be slow:
             await self.taskgroup.spawn(self._close_interface(old_interface))
@@ -907,6 +905,7 @@ class Network(Logger, NetworkRetryManager[ServerAddr]):
             self.logger.info(f"switching to {server}")
             blockchain_updated = i.blockchain != self.blockchain()
             self.interface = i
+            i.mark_as_main_server()
             try:
                 await i.taskgroup.spawn(self._request_server_info(i))
             except RuntimeError as e:  # see #7677
@@ -1149,8 +1148,10 @@ class Network(Logger, NetworkRetryManager[ServerAddr]):
 
     def get_blockchains(self) -> Mapping[str, Sequence[Interface]]:
         out = {}  # blockchain_id -> list(interfaces)
-        with blockchain.blockchains_lock: blockchain_items = list(blockchain.blockchains.items())
-        with self.interfaces_lock: interfaces_values = list(self.interfaces.values())
+        with self.bc_mgr.blockchains_lock:
+            blockchain_items = list(self.bc_mgr.blockchains.items())
+        with self.interfaces_lock:
+            interfaces_values = list(self.interfaces.values())
         for chain_id, bc in blockchain_items:
             r = list(filter(lambda i: i.blockchain==bc, interfaces_values))
             if r:
@@ -1171,7 +1172,7 @@ class Network(Logger, NetworkRetryManager[ServerAddr]):
         self.config.BLOCKCHAIN_PREFERRED_BLOCK = self._blockchain_preferred_block
 
     async def follow_chain_given_id(self, chain_id: str) -> None:
-        bc = blockchain.blockchains.get(chain_id)
+        bc = self.bc_mgr.blockchains.get(chain_id)
         if not bc:
             raise Exception('blockchain {} not found'.format(chain_id))
         self._set_preferred_chain(bc)
@@ -1313,9 +1314,9 @@ class Network(Logger, NetworkRetryManager[ServerAddr]):
     @classmethod
     async def async_send_http_on_proxy(
             cls, method: str, url: str, *,
-            params: dict = None,
-            body: bytes = None,
-            json: dict = None,
+            params: dict | None = None,
+            body: bytes | None = None,
+            json: dict | None = None,
             headers=None,
             on_finish=None,
             timeout=None,
@@ -1356,8 +1357,8 @@ class Network(Logger, NetworkRetryManager[ServerAddr]):
     async def get_peers(self):
         while not self.is_connected():
             await asyncio.sleep(1)
-        session = self.interface.session
-        return parse_servers(await session.send_request('server.peers.subscribe'))
+        server_peers = await self.interface.get_server_peers()
+        return parse_servers(server_peers)
 
     async def send_multiple_requests(
             self,
@@ -1365,7 +1366,7 @@ class Network(Logger, NetworkRetryManager[ServerAddr]):
             method: str,
             params: Sequence,
             *,
-            timeout: int = None,
+            timeout: int | None = None,
     ):
         if timeout is None:
             timeout = self.get_network_timeout_seconds(NetworkTimeout.Urgent)

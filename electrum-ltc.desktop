@@ -15,7 +15,7 @@ StartupNotify=true
 StartupWMClass=electrum-ltc
 Terminal=false
 Type=Application
-MimeType=x-scheme-handler/litecoin;x-scheme-handler/lightning;
+MimeType=x-scheme-handler/litecoin;x-scheme-handler/lightningltc;x-scheme-handler/lnltcurlp;x-scheme-handler/lnltcurlw;
 Actions=Testnet;
 Keywords=crypto;currency;LTC
 

@@ -189,15 +189,23 @@ Section
   CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME} Testnet.lnk" "$INSTDIR\electrum-ltc-${PRODUCT_VERSION}.exe" "--testnet" "$INSTDIR\electrum-ltc-${PRODUCT_VERSION}.exe" 0
 
 
-  ;Links litecoin: and lightning: URIs to Electrum
+  ;Links litecoin:, lightningltc: and lnltcurl LUD-17 URIs to Electrum
   WriteRegStr HKCU "Software\Classes\litecoin" "" "URL:litecoin Protocol"
   WriteRegStr HKCU "Software\Classes\litecoin" "URL Protocol" ""
   WriteRegStr HKCU "Software\Classes\litecoin" "DefaultIcon" "$\"$INSTDIR\electrum.ico, 0$\""
   WriteRegStr HKCU "Software\Classes\litecoin\shell\open\command" "" "$\"$INSTDIR\electrum-ltc-${PRODUCT_VERSION}.exe$\" $\"%1$\""
-  WriteRegStr HKCU "Software\Classes\lightning" "" "URL:lightning Protocol"
-  WriteRegStr HKCU "Software\Classes\lightning" "URL Protocol" ""
-  WriteRegStr HKCU "Software\Classes\lightning" "DefaultIcon" "$\"$INSTDIR\electrum.ico, 0$\""
-  WriteRegStr HKCU "Software\Classes\lightning\shell\open\command" "" "$\"$INSTDIR\electrum-ltc-${PRODUCT_VERSION}.exe$\" $\"%1$\""
+  WriteRegStr HKCU "Software\Classes\lightningltc" "" "URL:lightningltc Protocol"
+  WriteRegStr HKCU "Software\Classes\lightningltc" "URL Protocol" ""
+  WriteRegStr HKCU "Software\Classes\lightningltc" "DefaultIcon" "$\"$INSTDIR\electrum.ico, 0$\""
+  WriteRegStr HKCU "Software\Classes\lightningltc\shell\open\command" "" "$\"$INSTDIR\electrum-ltc-${PRODUCT_VERSION}.exe$\" $\"%1$\""
+  WriteRegStr HKCU "Software\Classes\lnltcurlp" "" "URL:lnltcurlp Protocol"
+  WriteRegStr HKCU "Software\Classes\lnltcurlp" "URL Protocol" ""
+  WriteRegStr HKCU "Software\Classes\lnltcurlp" "DefaultIcon" "$\"$INSTDIR\electrum.ico, 0$\""
+  WriteRegStr HKCU "Software\Classes\lnltcurlp\shell\open\command" "" "$\"$INSTDIR\electrum-ltc-${PRODUCT_VERSION}.exe$\" $\"%1$\""
+  WriteRegStr HKCU "Software\Classes\lnltcurlw" "" "URL:lnltcurlw Protocol"
+  WriteRegStr HKCU "Software\Classes\lnltcurlw" "URL Protocol" ""
+  WriteRegStr HKCU "Software\Classes\lnltcurlw" "DefaultIcon" "$\"$INSTDIR\electrum.ico, 0$\""
+  WriteRegStr HKCU "Software\Classes\lnltcurlw\shell\open\command" "" "$\"$INSTDIR\electrum-ltc-${PRODUCT_VERSION}.exe$\" $\"%1$\""
 
   ;Adds an uninstaller possibility to Windows Uninstall or change a program section
   WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "DisplayName" "$(^Name)"
@@ -229,6 +237,9 @@ Section "Uninstall"
   RMDir  "$SMPROGRAMS\${PRODUCT_NAME}"
 
   DeleteRegKey HKCU "Software\Classes\litecoin"
+  DeleteRegKey HKCU "Software\Classes\lightningltc"
+  DeleteRegKey HKCU "Software\Classes\lnltcurlp"
+  DeleteRegKey HKCU "Software\Classes\lnltcurlw"
   DeleteRegKey HKCU "Software\${PRODUCT_NAME}"
   DeleteRegKey HKCU "${PRODUCT_UNINST_KEY}"
 SectionEnd

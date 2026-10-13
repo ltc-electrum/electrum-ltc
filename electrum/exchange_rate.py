@@ -413,35 +413,6 @@ class CoinCap(ExchangeBase):
                      for h in history['data']])
 
 
-class CoinDesk(ExchangeBase):
-
-    async def get_currencies(self):
-        dicts = await self.get_json('api.coindesk.com',
-                              '/v1/bpi/supported-currencies.json')
-        return [d['currency'] for d in dicts]
-
-    async def get_rates(self, ccy):
-        json = await self.get_json('api.coindesk.com',
-                             '/v1/bpi/currentprice/%s.json' % ccy)
-        result = {ccy: to_decimal(json['bpi'][ccy]['rate_float'])}
-        return result
-
-    def history_starts(self):
-        return {'USD': '2012-11-30', 'EUR': '2013-09-01'}
-
-    def history_ccys(self):
-        return self.history_starts().keys()
-
-    async def request_history(self, ccy):
-        start = self.history_starts()[ccy]
-        end = datetime.today().strftime('%Y-%m-%d')
-        # Note ?currency and ?index don't work as documented.  Sigh.
-        query = ('/v1/bpi/historical/close.json?start=%s&end=%s'
-                 % (start, end))
-        json = await self.get_json('api.coindesk.com', query)
-        return json['bpi']
-
-
 class CoinGecko(ExchangeBase):
 
     async def get_rates(self, ccy):
@@ -778,14 +749,14 @@ class FxThread(ThreadJob, EventListener, NetworkRetryManager[str]):
             return Decimal('NaN')
         return self.exchange.get_cached_spot_quote(self.ccy)
 
-    def format_amount(self, ltc_balance, *, timestamp: int = None) -> str:
+    def format_amount(self, ltc_balance, *, timestamp: int | None = None) -> str:
         if timestamp is None:
             rate = self.exchange_rate()
         else:
             rate = self.timestamp_rate(timestamp)
         return '' if rate.is_nan() else "%s" % self.value_str(ltc_balance, rate)
 
-    def format_amount_and_units(self, ltc_balance, *, timestamp: int = None) -> str:
+    def format_amount_and_units(self, ltc_balance, *, timestamp: int | None = None) -> str:
         if timestamp is None:
             rate = self.exchange_rate()
         else:

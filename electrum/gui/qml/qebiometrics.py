@@ -1,10 +1,10 @@
 import os
-import secrets
 from enum import Enum
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, pyqtProperty
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, pyqtProperty, QMetaObject, Qt
 
+from electrum import crandom
 from electrum.i18n import _
 from electrum.logging import get_logger
 from electrum.base_crash_reporter import send_exception_to_crash_reporter
@@ -81,13 +81,14 @@ class QEBiometrics(AuthMixin, QObject):
         The encryption key for the wrap_key is stored in the AndroidKeyStore.
         This way the wallet password doesn't have to leave the process.
         """
-        wrap_key, iv = secrets.token_bytes(32), secrets.token_bytes(16)
+        wrap_key, iv = crandom.get_rand_bytes(32), crandom.get_rand_bytes(16)
         wrapped_wallet_password = aes_encrypt_with_iv(
             key=wrap_key,
             iv=iv,
             data=unified_wallet_password.encode('utf-8'),
         )
         encrypted_password_bundle = f"{iv.hex()}:{wrapped_wallet_password.hex()}"
+        assert self._current_action is None, "not overriding biometric auth pw during pending activity result"
         self.config.WALLET_ANDROID_BIOMETRIC_AUTH_WRAPPED_WALLET_PASSWORD = encrypted_password_bundle
         self._start_activity(BiometricAction.ENCRYPT, data=wrap_key.hex())
 
@@ -116,7 +117,7 @@ class QEBiometrics(AuthMixin, QObject):
 
     @pyqtSlot()
     @pyqtSlot(str)
-    def unlock(self, auth_message: str = None):
+    def unlock(self, auth_message: str | None = None):
         """
         Called when the user needs to authenticate.
         Makes the AndroidKeyStore decrypt our encrypted wrap key, we then use the decrypted wrap key
@@ -127,7 +128,8 @@ class QEBiometrics(AuthMixin, QObject):
         assert encrypted_wrap_key, "shouldn't unlock if biometric auth is disabled"
         self._start_activity(BiometricAction.DECRYPT, data=encrypted_wrap_key, auth_message=auth_message)
 
-    def _start_activity(self, action: BiometricAction, data: str, auth_message: str = None):
+    def _start_activity(self, action: BiometricAction, data: str, auth_message: str | None = None):
+        assert self._current_action is None, f"don't run concurrent activities: {self._current_action=} {action=}"
         self._current_action = action
 
         _logger.debug(f"_start_activity: {action.value}, {len(data)=}")
@@ -147,6 +149,14 @@ class QEBiometrics(AuthMixin, QObject):
         activity.bind(on_activity_result=self._on_activity_result)
         jPythonActivity.startActivityForResult(intent, self.REQUEST_CODE_BIOMETRIC_ACTIVITY)
 
+    def unbind(self):
+        # unbind later from event loop
+        QMetaObject.invokeMethod(self, '_unbind', Qt.ConnectionType.QueuedConnection)
+
+    @pyqtSlot()
+    def _unbind(self):
+        activity.unbind(on_activity_result=self._on_activity_result)
+
     def _on_activity_result(self, requestCode: int, resultCode: int, intent):
         if requestCode != self.REQUEST_CODE_BIOMETRIC_ACTIVITY:
             return
@@ -155,7 +165,8 @@ class QEBiometrics(AuthMixin, QObject):
         self._current_action = None
 
         try:
-            activity.unbind(on_activity_result=self._on_activity_result)
+            self.unbind()
+            assert action is not None, f"received activity {resultCode=} for {requestCode=} without pending action"
             if resultCode == -1: # RESULT_OK
                 data = intent.getStringExtra(jString("data"))
                 if action == BiometricAction.ENCRYPT:

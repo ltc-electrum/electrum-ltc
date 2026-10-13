@@ -32,9 +32,10 @@ class MockNetwork(Logger):
         self.relay_fee = 1000
         self.wallets = []
         self._tx_queue = asyncio.Queue()
+        self.local_height = 42
 
     def get_local_height(self):
-        return 42
+        return self.local_height
 
     def blockchain(self):
         class BlockchainMock:
@@ -82,7 +83,7 @@ txin._trusted_value_sats = SWAPDATA.onchain_amount
 txin, locktime = SwapManager.create_claim_txin(txin=txin, swap=SWAPDATA)
 SWAP_SWEEP_INFO = SweepInfo(
     txin=txin,
-    cltv_abs=locktime,
+    our_cltv_abs=locktime,
     txout=None,
     name='swap claim',
     can_be_batched=True,
@@ -105,7 +106,7 @@ chan_multisig_key = lnutil.Keypair(
 anchor_txin = sweep_ctx_anchor(ctx=anchor_chan_ctx, multisig_key=chan_multisig_key)
 ANCHOR_SWEEP_INFO = SweepInfo(
     name='local_anchor',
-    cltv_abs=None,
+    our_cltv_abs=None,
     txin=anchor_txin,
     txout=None,
     can_be_batched=True,
@@ -250,6 +251,64 @@ class TestTxBatcher(ElectrumTestCase):
         assert new_tx.inputs()[0].prevout == tx.inputs()[0].prevout == txin.prevout
         assert output1 in new_tx.outputs()
 
+    @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
+    async def test_sweep_with_use_change_disabled(self, mock_save_db):
+        """A sweep tx has no txo of its own, so it needs a change output, even if the
+        'use_change' option is disabled. Also, the change of a batch must never be sent
+        back to the address of a sweep input, as that address is not ismine.
+        """
+        wallet = self._create_wallet()
+        wallet.use_change = False
+        wallet.adb.db.transactions[SWAPDATA.funding_txid] = tx = Transaction(SWAP_FUNDING_TX)
+        wallet.adb.receive_tx_callback(tx, tx_height=1)
+        tx_mined_status = wallet.adb.get_tx_height(tx.txid())
+        wallet.adb.add_verified_tx(tx.txid(), dataclasses.replace(tx_mined_status, conf=1))
+        # sweep-only batch: the swept funds end up in the (forced) change output
+        wallet.txbatcher.add_sweep_input('default', SWAP_SWEEP_INFO)
+        tx = await self.network.next_tx()
+        self.assertEqual(1, len(tx.outputs()))
+        self.assertTrue(wallet.is_mine(tx.outputs()[0].address))
+        # add a payment to the batch. the batch now has a txo, but the change still must
+        # not be sent to the address of the sweep input
+        output1 = PartialTxOutput.from_address_and_value("tb1qyfnv3y866ufedugxxxfksyratv4pz3h78g9dad", 20_000)
+        wallet.txbatcher.add_payment_output('default', output1)
+        new_tx = await self.network.next_tx()
+        self.assertIn(output1, new_tx.outputs())
+        self.assertEqual(2, len(new_tx.outputs()))
+        for txout in new_tx.outputs():
+            if txout == output1:
+                continue
+            self.assertTrue(wallet.is_mine(txout.address), f'change sent to {txout.address}')
+
+    @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
+    async def test_batch_sweep_and_payment_with_use_change_disabled(self, mock_save_db):
+        """A batch that combines a sweep input with a payment output must not send its
+        change back to the address of the sweep input, as that address is not ismine.
+        """
+        wallet = self._create_wallet()
+        wallet.use_change = False
+        wallet.txbatcher.SLEEP_INTERVAL = 100  # we drive the batch manually
+        # fund wallet
+        funding_tx = Transaction(WALLET_DATA['funding_tx'])
+        await self.network.try_broadcasting(funding_tx, 'funding')
+        await self.network.next_tx()
+        # add the swap funding tx
+        wallet.adb.db.transactions[SWAPDATA.funding_txid] = tx = Transaction(SWAP_FUNDING_TX)
+        wallet.adb.receive_tx_callback(tx, tx_height=1)
+        tx_mined_status = wallet.adb.get_tx_height(tx.txid())
+        wallet.adb.add_verified_tx(tx.txid(), dataclasses.replace(tx_mined_status, conf=1))
+        # the batch contains both a sweep input and a payment output
+        wallet.txbatcher.add_sweep_input('default', SWAP_SWEEP_INFO)
+        output1 = PartialTxOutput.from_address_and_value("tb1qyfnv3y866ufedugxxxfksyratv4pz3h78g9dad", 20_000)
+        wallet.txbatcher.add_payment_output('default', output1)
+        tx = wallet.txbatcher.tx_batches['default'].create_next_transaction(None)
+        self.assertIn(output1, tx.outputs())
+        self.assertEqual(2, len(tx.outputs()))
+        for txout in tx.outputs():
+            if txout == output1:
+                continue
+            self.assertTrue(wallet.is_mine(txout.address), f'change sent to {txout.address}')
+
     async def test_to_sweep_after_anchor_sweep_conditions(self):
         # create wallet
         wallet = self._create_wallet()
@@ -281,6 +340,87 @@ class TestTxBatcher(ElectrumTestCase):
         self.assertFalse(to_sweep_ctx_conf)
         self.assertFalse(anchor_batch.batch_inputs)
         self.assertEqual(wallet.txbatcher.tx_batches['lnwatcher'], anchor_batch)
+
+    async def test_add_sweep_input_ignores_expired_sweep_info(self):
+        wallet = self._create_wallet()
+        wallet.adb.db.transactions[SWAPDATA.funding_txid] = Transaction(SWAP_FUNDING_TX)
+        sweep_info = SWAP_SWEEP_INFO._replace(expiry_height=self.network.local_height)
+        wallet.txbatcher.add_sweep_input('default', sweep_info)
+        self.assertFalse(wallet.txbatcher.tx_batches['default'].batch_inputs)
+
+    async def test_to_sweep_after_drops_expired_input(self):
+        wallet = self._create_wallet()
+        wallet.adb.db.transactions[SWAPDATA.funding_txid] = Transaction(SWAP_FUNDING_TX)
+        sweep_info = SWAP_SWEEP_INFO._replace(expiry_height=self.network.local_height + 1)
+        wallet.txbatcher.add_sweep_input('default', sweep_info)
+        batch = wallet.txbatcher.tx_batches['default']
+
+        # one block before the expiry height we still want to sweep
+        to_sweep = batch._to_sweep_after(tx=None)
+        self.assertEqual({sweep_info.txin.prevout: sweep_info}, to_sweep)
+
+        # at the expiry height we give up on the input
+        self.network.local_height = sweep_info.expiry_height
+        self.assertFalse(batch._to_sweep_after(tx=None))
+        self.assertFalse(batch.batch_inputs)
+
+    async def test_to_sweep_after_drops_expired_input_whose_prev_tx_is_missing(self):
+        """Giving up on an expired input must not depend on having its prev tx in the db,
+        otherwise the input lingers in batch_inputs forever."""
+        wallet = self._create_wallet()
+        sweep_info = SWAP_SWEEP_INFO._replace(expiry_height=self.network.local_height + 1)
+        wallet.txbatcher.add_sweep_input('default', sweep_info)
+        batch = wallet.txbatcher.tx_batches['default']
+        self.assertIn(sweep_info.txin.prevout, batch.batch_inputs)
+
+        self.network.local_height = sweep_info.expiry_height
+        self.assertFalse(batch._to_sweep_after(tx=None))
+        self.assertFalse(batch.batch_inputs)
+
+    async def test_add_sweep_input_works_again_after_expired_input_was_dropped(self):
+        """After we gave up on an expired input, the same prevout can be added to the
+        batch again, e.g. by _claim_swap re-adding a swap claim without expiry because
+        the preimage became public."""
+        wallet = self._create_wallet()
+        wallet.adb.db.transactions[SWAPDATA.funding_txid] = Transaction(SWAP_FUNDING_TX)
+        sweep_info = SWAP_SWEEP_INFO._replace(expiry_height=self.network.local_height + 1)
+        wallet.txbatcher.add_sweep_input('default', sweep_info)
+        batch = wallet.txbatcher.tx_batches['default']
+
+        # the input expires and is dropped
+        self.network.local_height = sweep_info.expiry_height
+        self.assertFalse(batch._to_sweep_after(tx=None))
+        self.assertFalse(batch.batch_inputs)
+
+        # the same prevout is added again, this time without expiry
+        wallet.txbatcher.add_sweep_input('default', SWAP_SWEEP_INFO)
+        self.assertIn(SWAP_SWEEP_INFO.txin.prevout, batch.batch_inputs)
+
+    @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
+    async def test_to_sweep_after_keeps_expired_input_of_current_batch_tx(self, mock_save_db):
+        """We don't drop an expired sweep if the current batch tx already spends it"""
+        wallet = self._create_wallet()
+        wallet.adb.db.transactions[SWAPDATA.funding_txid] = tx = Transaction(SWAP_FUNDING_TX)
+        wallet.adb.receive_tx_callback(tx, tx_height=1)
+        tx_mined_status = wallet.adb.get_tx_height(tx.txid())
+        wallet.adb.add_verified_tx(tx.txid(), dataclasses.replace(tx_mined_status, conf=1))
+        sweep_info = SWAP_SWEEP_INFO._replace(expiry_height=self.network.local_height + 1)
+        wallet.txbatcher.add_sweep_input('default', sweep_info)
+        batch = wallet.txbatcher.tx_batches['default']
+        claim_tx = await self.network.next_tx()
+        self.assertEqual(sweep_info.txin.prevout, claim_tx.inputs()[0].prevout)
+
+        # the expiry height is reached while our tx is still unconfirmed
+        self.network.local_height = sweep_info.expiry_height
+        self.assertFalse(batch._to_sweep_after(claim_tx))
+        self.assertIn(sweep_info.txin.prevout, batch.batch_inputs)
+
+        # we can still create and sign a replacement of the tx that spends the input
+        output = PartialTxOutput.from_address_and_value("tb1qyfnv3y866ufedugxxxfksyratv4pz3h78g9dad", 20_000)
+        wallet.txbatcher.add_payment_output('default', output)
+        new_tx = await self.network.next_tx()
+        self.assertEqual(sweep_info.txin.prevout, new_tx.inputs()[0].prevout)
+        self.assertIn(output, new_tx.outputs())
 
     async def _wait_for_base_tx(self, txbatch, should_be_none=False):
         async with timeout_after(10):

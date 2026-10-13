@@ -25,7 +25,7 @@
 import threading
 import copy
 import json
-from typing import TYPE_CHECKING, Optional, Sequence, List, Union, Any
+from typing import TYPE_CHECKING, Optional, Sequence, List, Union, Dict, Any
 
 import jsonpatch
 import jsonpointer
@@ -33,6 +33,8 @@ import jsonpointer
 from . import util
 from .util import WalletFileException, profiler, sticky_property
 from .logging import Logger
+from .stored_dict import StoredDict, _FLEX_KEY, registered_names, registered_keys, _convert_dict_key, _convert_dict_value
+
 
 if TYPE_CHECKING:
     from .storage import WalletStorage
@@ -52,6 +54,21 @@ setattr(jsonpatch.JsonPatchException, '__context__', sticky_property(None))
 setattr(jsonpatch.JsonPatchException, '__suppress_context__', sticky_property(True))
 
 
+def key_path(path: Sequence[_FLEX_KEY], key: _FLEX_KEY) -> str:
+    def to_str(x: _FLEX_KEY) -> str:
+        assert isinstance(x, _FLEX_KEY), repr(x)
+        assert x is not None
+        if isinstance(x, int):
+            return str(int(x))
+        else:
+            assert isinstance(x, str), f"unexpected key type for: {x!r}"
+            return jsonpointer.escape(x)  # RFC 6901: escape '~' and '/'
+    items = [to_str(x) for x in path]
+    if key is not None:
+        items.append(to_str(key))
+    return '/'.join(items)
+
+
 def modifier(func):
     def wrapper(self, *args, **kwargs):
         with self.lock:
@@ -65,212 +82,6 @@ def locked(func):
             return func(self, *args, **kwargs)
     return wrapper
 
-
-registered_names = {}
-registered_dicts = {}
-registered_dict_keys = {}
-registered_parent_keys = {}
-
-def register_dict(name, method, _type):
-    registered_dicts[name] = method, _type
-
-def register_name(name, method, _type):
-    registered_names[name] = method, _type
-
-def register_dict_key(name, method):
-    registered_dict_keys[name] = method
-
-def register_parent_key(name, method):
-    registered_parent_keys[name] = method
-
-def stored_as(name, _type=dict):
-    """ decorator that indicates the storage key of a stored object"""
-    def decorator(func):
-        registered_names[name] = func, _type
-        return func
-    return decorator
-
-def stored_in(name, _type=dict):
-    """ decorator that indicates the storage key of an element in a StoredDict"""
-    def decorator(func):
-        registered_dicts[name] = func, _type
-        return func
-    return decorator
-
-_FLEX_KEY = str | int | None
-
-def key_path(path: Sequence[_FLEX_KEY], key: _FLEX_KEY) -> str:
-    def to_str(x: _FLEX_KEY) -> str:
-        assert isinstance(x, _FLEX_KEY), repr(x)
-        assert x is not None
-        if isinstance(x, int):
-            return str(int(x))
-        else:
-            assert isinstance(x, str), f"unexpected key type for: {x!r}"
-            return x
-    items = [to_str(x) for x in path]
-    if key is not None:
-        items.append(to_str(key))
-    return '/'.join(items)
-
-class BaseStoredObject:
-
-    _db: 'JsonDB' = None
-    _key: _FLEX_KEY = None
-    _parent: Optional['BaseStoredObject'] = None
-    _lock: threading.RLock = None
-
-    def set_db(self, db):
-        self._db = db
-        self._lock = self._db.lock if self._db else threading.RLock()
-
-    def set_parent(self, *, key: _FLEX_KEY, parent: Optional['BaseStoredObject']) -> None:
-        assert (key == "") == (parent is None), f"{key=!r}, {parent=!r}"
-        assert isinstance(key, _FLEX_KEY), repr(key)
-        self._key = key
-        self._parent = parent
-
-    @property
-    def lock(self):
-        return self._lock
-
-    @property
-    def path(self) -> Sequence[_FLEX_KEY] | None:
-        # return None iff we are pruned from root
-        x = self
-        s = [x._key]
-        while x._parent is not None:
-            x = x._parent
-            s = [x._key] + s
-        if x._key != '':
-            return None
-        assert self._db is not None
-        return s
-
-    def db_add(self, key: _FLEX_KEY, value) -> None:
-        assert isinstance(key, _FLEX_KEY), repr(key)
-        if self.path:
-            self._db.add(self.path, key, value)
-
-    def db_replace(self, key: _FLEX_KEY, value) -> None:
-        assert isinstance(key, _FLEX_KEY), repr(key)
-        if self.path:
-            self._db.replace(self.path, key, value)
-
-    def db_remove(self, key: _FLEX_KEY) -> None:
-        assert isinstance(key, _FLEX_KEY), repr(key)
-        if self.path:
-            self._db.remove(self.path, key)
-
-
-class StoredObject(BaseStoredObject):
-    """for attr.s objects """
-
-    def __setattr__(self, key: str, value):
-        assert isinstance(key, str), repr(key)
-        if self.path and not key.startswith('_'):
-            if value != getattr(self, key):
-                self.db_replace(key, value)
-        object.__setattr__(self, key, value)
-
-    def to_json(self):
-        d = dict(vars(self))
-        # don't expose/store private stuff
-        d = {k: v for k, v in d.items()
-             if not k.startswith('_')}
-        return d
-
-
-
-_RaiseKeyError = object() # singleton for no-default behavior
-
-
-class StoredDict(dict, BaseStoredObject):
-
-    def __init__(self, data: dict, db: 'JsonDB'):
-        self.set_db(db)
-        # recursively convert dicts to StoredDict
-        for k, v in list(data.items()):
-            self.__setitem__(k, v)
-
-    @locked
-    def __setitem__(self, key: _FLEX_KEY, v) -> None:
-        assert isinstance(key, _FLEX_KEY), repr(key)
-        is_new = key not in self
-        # early return to prevent unnecessary disk writes
-        if not is_new and self._db and json.dumps(v, cls=self._db.encoder) == json.dumps(self[key], cls=self._db.encoder):
-            return
-        # convert dict to StoredDict.
-        if type(v) == dict and (self._db is None or self._db._should_convert_to_stored_dict(key)):
-            v = StoredDict(v, self._db)
-        # convert list to StoredList
-        elif type(v) == list:
-            v = StoredList(v, self._db)
-        # reject sets. they do not work well with jsonpatch
-        elif isinstance(v, set):
-            raise Exception(f"Do not store sets inside jsondb. path={self.path!r}")
-        # set db for StoredObject, because it is not set in the constructor
-        if isinstance(v, StoredObject):
-            v.set_db(self._db)
-        # set parent
-        if isinstance(v, BaseStoredObject):
-            v.set_parent(key=key, parent=self)
-        # set item
-        dict.__setitem__(self, key, v)
-        self.db_add(key, v) if is_new else self.db_replace(key, v)
-
-    @locked
-    def __delitem__(self, key: _FLEX_KEY) -> None:
-        assert isinstance(key, _FLEX_KEY), repr(key)
-        r  = self.get(key, None)
-        dict.__delitem__(self, key)
-        self.db_remove(key)
-        if isinstance(r, BaseStoredObject):
-            r._parent = None
-
-    @locked
-    def pop(self, key: _FLEX_KEY, v=_RaiseKeyError) -> Any:
-        assert isinstance(key, _FLEX_KEY), repr(key)
-        if key not in self:
-            if v is _RaiseKeyError:
-                raise KeyError(key)
-            else:
-                return v
-        r = dict.pop(self, key)
-        self.db_remove(key)
-        if isinstance(r, BaseStoredObject):
-            r._parent = None
-        return r
-
-    def setdefault(self, key: _FLEX_KEY, default = None, /):
-        assert isinstance(key, _FLEX_KEY), repr(key)
-        if key not in self:
-            self.__setitem__(key, default)
-        return self[key]
-
-
-class StoredList(list, BaseStoredObject):
-
-    def __init__(self, data, db: 'JsonDB'):
-        list.__init__(self, data)
-        self.set_db(db)
-
-    @locked
-    def append(self, item):
-        n = len(self)
-        list.append(self, item)
-        self.db_add('%d'%n, item)
-
-    @locked
-    def remove(self, item):
-        n = self.index(item)
-        list.remove(self, item)
-        self.db_remove('%d'%n)
-
-    @locked
-    def clear(self):
-        list.clear(self)
-        self.db_replace(None, [])
 
 
 
@@ -304,7 +115,7 @@ class JsonDB(Logger):
         if self.storage and self.storage.file_exists():
             self.write_and_force_consolidation()
 
-    def load_data(self, s: str) -> dict:
+    def load_data(self, s: str) -> Dict[str, Any]:
         if s == '':
             return {}
         try:
@@ -315,6 +126,7 @@ class JsonDB(Logger):
                 data, patches = r, []
             elif r := self.maybe_load_incomplete_data(s):
                 data, patches = r, []
+                self.set_modified(True)
             else:
                 raise WalletFileException("Cannot read wallet file. (parsing failed)")
         if not isinstance(data, dict):
@@ -327,7 +139,7 @@ class JsonDB(Logger):
             self.set_modified(True)
         return data
 
-    def maybe_load_ast_data(self, s):
+    def maybe_load_ast_data(self, s) ->Dict[str, Any]:
         """ for old wallets """
         try:
             import ast
@@ -344,22 +156,28 @@ class JsonDB(Logger):
                 self.logger.info(f'Failed to convert label to json format: {key}')
                 continue
             data[key] = value
-        return data
+        # json roundtrip: recursively converts int keys to str
+        return json.loads(json.dumps(data))
 
-    def maybe_load_incomplete_data(self, s):
-        n = s.count('{') - s.count('}')
-        i = len(s)
-        while n > 0 and i > 0:
-            i = i - 1
-            if s[i] == '{':
-                n = n - 1
-            if s[i] == '}':
-                n = n + 1
-            if n == 0:
-                s = s[0:i]
-                assert s[-2:] == ',\n'
-                self.logger.info('found incomplete data {s[i:]}')
-                return self.load_data(s[0:-2])
+    def maybe_load_incomplete_data(self, s: str) -> Optional[Dict[str, Any]]:
+        """Try to recover a file that was truncated mid-write (e.g. crash during append).
+        The file consists of a JSON object followed by JSON patches, separated by ',\n'
+        (see _append_pending_changes). We parse complete segments with a real JSON parser,
+        and drop the incomplete tail (note there might be '{' and '}' in user-controled input).
+        """
+        decoder = json.JSONDecoder()
+        end: Optional[int] = None  # end of last complete segment
+        try:
+            _, end = decoder.raw_decode(s)  # main json object
+            while end < len(s):
+                if not (s.startswith(',\n', end) or s[end:] == ','):
+                    return None  # unexpected structure, not a truncated append. cannot recover.
+                _, end = decoder.raw_decode(s, end + 2)  # patch
+        except json.JSONDecodeError:
+            if end is None:
+                return None  # main json object itself is truncated. cannot recover.
+            self.logger.warning(f'found incomplete data, dropping {len(s) - end} trailing characters from json database')
+            return self.load_data(s[0:end])
 
     def set_modified(self, b):
         with self.lock:
@@ -398,7 +216,8 @@ class JsonDB(Logger):
             json.dumps(key, cls=self.encoder)
             json.dumps(value, cls=self.encoder)
         except Exception:
-            self.logger.info(f"json error: cannot save {repr(key)} ({repr(value)})")
+            # note: "value" might be secret material, should probably not log it
+            self.logger.info(f"json error: cannot save {key=!r} ({type(value)})")
             return False
         if value is not None:
             if self.data.get(key) != value:
@@ -438,40 +257,11 @@ class JsonDB(Logger):
     def _should_convert_to_stored_dict(self, key) -> bool:
         return True
 
-    def _convert_dict_key(self, path: List[str]) -> _FLEX_KEY:
-        """Maybe convert key from str to python type (typically int or IntEnum)"""
-        assert all(isinstance(x, str) for x in path), repr(path)
-        key = path[-1]
-        parent_key = path[-2] if len(path) > 1 else None
-        gp_key = path[-3] if len(path) > 2 else None
-        if parent_key and parent_key in registered_dict_keys:
-            convert_key = registered_dict_keys[parent_key]
-        elif gp_key and gp_key in registered_parent_keys:
-            convert_key = registered_parent_keys.get(gp_key)
-        else:
-            convert_key = None
-        if convert_key:
-            key = convert_key(key)
-        assert isinstance(key, _FLEX_KEY), f"unexpected type for {key=!r} at {path=}"
-        return key
+    def _convert_dict_key(self, path: List[str], key: str) -> _FLEX_KEY:
+        return _convert_dict_key(path, key)
 
     def _convert_dict_value(self, path: List[str], v) -> Any:
-        assert all(isinstance(x, str) for x in path), repr(path)
-        key = path[-1]
-        if key in registered_dicts:
-            constructor, _type = registered_dicts[key]
-            if _type == dict:
-                v = dict((k, constructor(**x)) for k, x in v.items())
-            elif _type == tuple:
-                v = dict((k, constructor(*x)) for k, x in v.items())
-            else:
-                v = dict((k, constructor(x)) for k, x in v.items())
-        elif key in registered_names:
-            constructor, _type = registered_names[key]
-            if _type == dict:
-                v = constructor(**v)
-            else:
-                v = constructor(v)
+        v = _convert_dict_value(path, v)
         if isinstance(v, dict):
             v = self._convert_dict(path, v)
         return v
@@ -482,7 +272,7 @@ class JsonDB(Logger):
         d = {}
         for k, v in list(data.items()):
             child_path = path + [k]
-            k = self._convert_dict_key(child_path)
+            k = self._convert_dict_key(path, k)
             v = self._convert_dict_value(child_path, v)
             d[k] = v
         return d

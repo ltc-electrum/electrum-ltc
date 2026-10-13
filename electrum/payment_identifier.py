@@ -11,14 +11,14 @@ from .contacts import AliasNotFoundException
 from .i18n import _
 from .invoices import Invoice
 from .logging import Logger
-from .util import parse_max_spend, InvoiceError
+from .util import parse_max_spend, InvoiceError, format_satoshis_plain
 from .util import get_asyncio_loop, log_exceptions
-from .transaction import PartialTxOutput
+from .transaction import PartialTxOutput, script_GetOp
 from .lnurl import (decode_lnurl, request_lnurl, callback_lnurl, LNURLError,
                     lightning_address_to_url, try_resolve_lnurlpay, LNURL6Data,
-                    LNURL3Data, LNURLData)
+                    LNURL3Data, LNURLData, SUPPORTED_LNURL_SCHEMES)
 from .bitcoin import opcodes, construct_script
-from .lnaddr import LnInvoiceException
+from .bolt11 import BOLT11InvoiceException
 from .lnutil import IncompatibleOrInsaneFeatures
 from .bip21 import parse_bip21_URI, InvalidBitcoinURI, LIGHTNING_URI_SCHEME, BITCOIN_BIP21_URI_SCHEME
 from .segwit_addr import bech32_decode
@@ -26,6 +26,7 @@ from .segwit_addr import bech32_decode
 if TYPE_CHECKING:
     from .wallet import Abstract_Wallet
     from .transaction import Transaction
+    from .simple_config import SimpleConfig
 
 
 def maybe_extract_bech32_lightning_payment_identifier(data: str) -> Optional[str]:
@@ -45,9 +46,25 @@ def remove_uri_prefix(data: str, *, prefix: str) -> str:
     return data
 
 
+def maybe_extract_url_from_lud_17_uri(data: str) -> Optional[str]:
+    """https://github.com/lnurl/luds/blob/luds/17.md"""
+    data = data.strip()
+    try:
+        parsed = urllib.parse.urlsplit(data)
+    except ValueError:
+        return None
+    if parsed.scheme not in SUPPORTED_LNURL_SCHEMES:
+        return None
+    if not (host := parsed.hostname) or not parsed.path:
+        return None
+    is_onion = host.endswith('.onion')
+    url_scheme = 'http' if is_onion else 'https'
+    return urllib.parse.urlunsplit(parsed._replace(scheme=url_scheme))
+
+
 RE_ALIAS = r'(.*?)\s*\<([0-9A-Za-z]{1,})\>'
-RE_EMAIL = r'\b[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Z|a-z]{2,7}\b'
-RE_DOMAIN = r'\b([A-Za-z0-9-]+\.)+[A-Z|a-z]{2,7}\b'
+RE_EMAIL = r'\b[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,7}\b'
+RE_DOMAIN = r'\b([A-Za-z0-9-]+\.)+[A-Za-z]{2,7}\b'
 RE_SCRIPT_FN = r'script\((.*)\)'
 
 
@@ -98,6 +115,7 @@ class PaymentIdentifier(Logger):
         * openalias
         * bip21 URI
         * lightning-URI (containing bolt11 or lnurl)
+        * lnurl-URI (lud17 lnurlw/lnurlp URI)
         * bolt11 invoice
         * lnurl
         * lightning address
@@ -165,6 +183,7 @@ class PaymentIdentifier(Logger):
             return bool(self.bolt11) and bool(self.bolt11.get_address())
         if self._type == PaymentIdentifierType.BIP21:
             return bool(self.bip21.get('address', None)) or (bool(self.bolt11) and bool(self.bolt11.get_address()))
+        return False
 
     def is_multiline(self):
         return bool(self.multiline_outputs)
@@ -228,6 +247,10 @@ class PaymentIdentifier(Logger):
                     self.logger.debug(f'Exception cause {e.args!r}')
                     return
                 self.set_state(PaymentIdentifierState.AVAILABLE)
+        elif lnurl_url := maybe_extract_url_from_lud_17_uri(text):
+            self._type = PaymentIdentifierType.LNURL
+            self.lnurl = lnurl_url
+            self.set_state(PaymentIdentifierState.NEED_RESOLVE)
         elif text.lower().startswith(BITCOIN_BIP21_URI_SCHEME + ':'):
             try:
                 out = parse_bip21_URI(text)
@@ -298,6 +321,8 @@ class PaymentIdentifier(Logger):
                 openalias_task = asyncio.create_task(self.resolve_openalias(openalias_key))
 
                 # prefers lnurl over openalias if both are available
+                # FIXME resolving openalias disregards the network proxy and leaks our IP to
+                #       the DNS server. (see dnssec.query)
                 lnurl = lightning_address_to_url(self.emaillike) if self.emaillike else None
                 if lnurl is not None and (lnurl_result := await try_resolve_lnurlpay(lnurl)):
                     openalias_task.cancel()
@@ -347,7 +372,7 @@ class PaymentIdentifier(Logger):
         self,
         *,
         amount_sat: int = 0,
-        comment: str = None,
+        comment: str | None = None,
         on_finished: Callable[['PaymentIdentifier'], None] = None,
     ):
         assert self._state == PaymentIdentifierState.LNURLP_FINALIZE
@@ -358,9 +383,9 @@ class PaymentIdentifier(Logger):
     async def _do_finalize(
         self,
         *,
-        amount_sat: int = None,
-        comment: str = None,
-        on_finished: Callable[['PaymentIdentifier'], None] = None,
+        amount_sat: int | None = None,
+        comment: str | None = None,
+        on_finished: Callable[['PaymentIdentifier'], None] | None = None,
     ):
         from .invoices import Invoice
         try:
@@ -414,7 +439,7 @@ class PaymentIdentifier(Logger):
         else:
             raise Exception('not onchain')
 
-    def _parse_as_multiline(self, text: str):
+    def _parse_as_multiline(self, text: str) -> List[PartialTxOutput]:
         # filter out empty lines
         lines = text.split('\n')
         lines = [i for i in lines if i]
@@ -426,10 +451,12 @@ class PaymentIdentifier(Logger):
         for i, line in enumerate(lines):
             try:
                 output = self.parse_address_and_amount(line)
+                is_multiline = True  # we parsed a <script>/<address>,<amount> line
                 outputs.append(output)
                 if parse_max_spend(output.value):
                     self._is_max = True
                 else:
+                    assert output.value >= 0, 'no negative amounts allowed'
                     total += output.value
             except Exception as e:
                 errors = f'{errors}line #{i}: {str(e)}\n'
@@ -465,7 +492,8 @@ class PaymentIdentifier(Logger):
 
         return None, False
 
-    def parse_script(self, x: str) -> bytes:
+    @staticmethod
+    def parse_script(x: str) -> bytes:
         script = bytearray()
         for word in x.split():
             if word[0:3] == 'OP_':
@@ -499,7 +527,7 @@ class PaymentIdentifier(Logger):
         error = _("Error parsing Lightning invoice") + f":\n{e!r}"
         if e.args and len(e.args):
             arg = e.args[0]
-            if isinstance(arg, LnInvoiceException):
+            if isinstance(arg, BOLT11InvoiceException):
                 error = _("Error parsing Lightning invoice") + f":\n{e}"
             elif isinstance(arg, IncompatibleOrInsaneFeatures):
                 error = _("Invoice requires unknown or incompatible Lightning feature") + f":\n{e!r}"
@@ -594,7 +622,7 @@ def invoice_from_payment_identifier(
     pi: 'PaymentIdentifier',
     wallet: 'Abstract_Wallet',
     amount_sat: Union[int, str],
-    message: str = None
+    message: str | None = None
 ) -> Optional[Invoice]:
     assert pi.state in [PaymentIdentifierState.AVAILABLE,]
     assert pi.is_onchain() if amount_sat == '!' else True  # MAX should only be allowed if pi has onchain destination
@@ -615,3 +643,29 @@ def invoice_from_payment_identifier(
             URI=pi.bip21,
         )
 
+
+def script_to_string(script: bytes) -> str:
+    """Convert script bytes to human-readable string for PI"""
+    words = []
+    for opcode, data, _pos in script_GetOp(script):
+        if data is None:  # not a push opcode
+            words.append(opcodes(opcode).name)
+        elif data:
+            words.append(data.hex())
+        else:  # empty push
+            words.append(opcodes.OP_0.name)
+    s = ' '.join(words)
+    assert PaymentIdentifier.parse_script(s) == script, f"{s} != {script.hex()}"
+    return s
+
+
+def outputs_to_multiline_csv(outputs: List[PartialTxOutput], config: 'SimpleConfig') -> str:
+    lines = []
+    for output in outputs:
+        recipient = output.address or f'script({script_to_string(output.scriptpubkey)})'
+        if parse_max_spend(output.value):
+            amount = output.value
+        else:
+            amount = format_satoshis_plain(output.value, decimal_point=config.BTC_AMOUNTS_DECIMAL_POINT)
+        lines.append(f'{recipient},{amount}')
+    return '\n'.join(lines)

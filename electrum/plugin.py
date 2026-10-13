@@ -50,6 +50,7 @@ from .util import (profiler, DaemonThread, UserCancelled, ThreadJob, UserFacingE
                    make_dir, make_aiohttp_session)
 from . import bip32
 from . import plugins
+from . import crandom
 from .simple_config import SimpleConfig
 from .logging import get_logger, Logger
 from .crypto import sha256
@@ -78,7 +79,7 @@ class Plugins(DaemonThread):
     keyfile_windows = r'HKEY_LOCAL_MACHINE\SOFTWARE\Electrum\PluginsKey'
 
     @profiler
-    def __init__(self, config: SimpleConfig, gui_name: str = None, cmd_only: bool = False):
+    def __init__(self, config: SimpleConfig, gui_name: str | None = None, cmd_only: bool = False):
         self.config = config
         self.cmd_only = cmd_only  # type: bool
         self.internal_plugin_metadata = {}
@@ -440,7 +441,7 @@ class Plugins(DaemonThread):
             pass
 
     def create_new_key(self, password:str) -> str:
-        salt = os.urandom(32)
+        salt = crandom.get_rand_bytes(32)
         privkey = self.derive_privkey(password, salt)
         pubkey = privkey.get_public_key_bytes()
         key = bytes([PLUGIN_PASSWORD_VERSION]) + salt + pubkey
@@ -1131,7 +1132,12 @@ class DeviceMgr(ThreadJob):
             if fut := self._ongoing_timeout_checks.pop(id_, None):
                 fut.cancel()
         if client:
-            client.close()
+            try:
+                client.close()
+            except Exception as e:
+                # closing is best-effort: it does device I/O, which can fail,
+                # e.g. if the device was unplugged
+                self.logger.info(f"failed to close hardware client cleanly: {e!r}")
 
     def _client_by_id(self, id_) -> Optional['HardwareClientBase']:
         with self.lock:

@@ -61,6 +61,7 @@ WizardComponent {
                 id: validationtext
                 Layout.fillWidth: true
                 Layout.columnSpan: 2
+                backgroundColor: constants.darkerDialogBackground
                 visible: text
                 iconStyle: InfoTextArea.IconStyle.Error
             }
@@ -87,7 +88,7 @@ WizardComponent {
 
             TextField {
                 id: customwordstext
-                enabled: extendcb.checked
+                visible: extendcb.checked  // users confuse this with the seed re-entry if shown
                 Layout.fillWidth: true
                 Layout.columnSpan: 2
                 placeholderText: qsTr('Enter your custom word(s)')

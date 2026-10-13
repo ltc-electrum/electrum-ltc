@@ -5,4 +5,6 @@
   <category android:name="android.intent.category.BROWSABLE" />
   <data android:scheme="litecoin" />
   <data android:scheme="lightningltc" />
+  <data android:scheme="lnltcurlw" />
+  <data android:scheme="lnltcurlp" />
 </intent-filter>
