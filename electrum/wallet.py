@@ -1147,11 +1147,11 @@ class Abstract_Wallet(ABC, Logger, EventListener):
                                 uncle_txid, uncle_index = k.split(':')
                                 uncles.append(uncle_txid)
 
+            self._tx_parents_cache[txid] = result
             for _txid in parents + uncles:
                 if _txid in self._last_full_history.keys():
                     result.update(self.get_tx_parents(_txid))
             result[txid] = parents, uncles
-            self._tx_parents_cache[txid] = result
             return result
 
     def get_balance(self, **kwargs):
