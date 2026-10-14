@@ -37,6 +37,7 @@ info "Building $pkgname..."
     git reset --hard
     git clean -dfxq
     git checkout "${ZBAR_VERSION}^{commit}"
+    git checkout 0.23.95 zbar/img_scanner.c
 
     if [ "$BUILD_TYPE" = "wine" ] ; then
         echo "libzbar_la_LDFLAGS += -Wc,-static" >> zbar/Makefile.am
