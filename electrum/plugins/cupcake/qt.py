@@ -61,11 +61,8 @@ class QtHandler(QtHandlerBase):
         cbor_enc = CBOREncoder()
         cbor_enc.encodeBytes(b64decode(resp.psbt_b64))
         ur_enc = UREncoder(UR('psbt', cbor_enc.get_bytes()), 120)
-        data = []
-        while not ur_enc.is_complete():
-            data.append(ur_enc.next_part())
         self.done.clear()
-        self.show_ur_signal.emit(data)
+        self.show_ur_signal.emit(ur_enc)
         self.done.wait()
         if not isinstance(self.result, UR) or self.result.type != 'psbt':
             raise UserFacingException('Did not scan a UR PSBT')

@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QApplication, QVBoxLayout, QHBoxLayout, QPushButton,
 from electrum.i18n import _
 from electrum.simple_config import SimpleConfig
 from electrum.gui.common_qt.util import draw_qr
+from electrum.ur.ur_encoder import UREncoder
 
 from .util import WindowModalDialog, WWLabel, getSaveFileName
 
@@ -25,7 +26,6 @@ class QRCodeWidget(QWidget):
     def __init__(self, data=None, *, manual_size: bool = False):
         QWidget.__init__(self)
         self.data = None
-        self.qr = []
         self._framesize = None  # type: Optional[int]
         self._manual_size = manual_size
         self._timer = QTimer(self)
@@ -35,40 +35,38 @@ class QRCodeWidget(QWidget):
 
     def setData(self, data):
         if data:
-            if isinstance(data, str):
-                data = [data]
-            for d in data:
-                qr = qrcode.QRCode(
-                    error_correction=qrcode.constants.ERROR_CORRECT_L,
-                    border=1,
-                )
-                try:
-                    qr.add_data(d)
-                    qr_matrix = qr.get_matrix()  # test that data fits in QR code
-                except (ValueError, qrcode.exceptions.DataOverflowError) as e:
-                    raise QrCodeDataOverflow() from e
-                self.qr.append(qr)
             self.data = data
-            if not self._manual_size:
-                k = len(qr_matrix)
-                size = min(k * 5, 150 + k * self.MIN_BOXSIZE)
-                self.setMinimumSize(size, size)
+            self.makeQR()
         else:
-            self.qr = []
             self.data = None
 
         self.update()
+
+    def makeQR(self):
+        qr = qrcode.QRCode(
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            border=1,
+        )
+        try:
+            qr.add_data(self.data.next_part() if isinstance(self.data, UREncoder) else self.data)
+            qr_matrix = qr.get_matrix()  # test that data fits in QR code
+        except (ValueError, qrcode.exceptions.DataOverflowError) as e:
+            raise QrCodeDataOverflow() from e
+        if not self._manual_size:
+            k = len(qr_matrix)
+            size = min(k * 5, 150 + k * self.MIN_BOXSIZE)
+            self.setMinimumSize(size, size)
+        return qr
 
     def paintEvent(self, e):
         if not self.data:
             return
         draw_qr(
-            qr=self.qr[0],
+            qr=self.makeQR(),
             paint_device=self,
             is_enabled=self.isEnabled(),
             min_boxsize=self.MIN_BOXSIZE,
         )
-        self.qr.append(self.qr.pop(0))
 
     def grab(self) -> QtGui.QPixmap:
         """Overrides QWidget.grab to only include the QR code itself,
