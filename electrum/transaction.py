@@ -962,6 +962,8 @@ class Transaction:
         assert isinstance(value, int), f"locktime must be int, not {value!r}"
         self._locktime = value
         self.invalidate_ser_cache()
+        if isinstance(self, PartialTransaction) and self._original_tx:
+            self._original_tx.locktime = value
 
     @property
     def version(self):

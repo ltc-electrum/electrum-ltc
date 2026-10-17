@@ -2940,7 +2940,6 @@ class Abstract_Wallet(ABC, Logger, EventListener):
         # sign mweb
         if tx._original_tx:
             tmp_tx = copy.copy(tx._original_tx)
-            tmp_tx.locktime = tx.locktime
             change = []
             if isinstance(self.keystore, Cupcake_KeyStore):
                 tmp_tx._fee_estimator = tx._fee_estimator
