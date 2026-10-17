@@ -43,7 +43,7 @@ class QtHandler(QtHandlerBase):
             outs, pegouts = partition(lambda x: x.is_change, outs)
             mwouts.extend(pegouts)
         tx2 = PartialTransaction.from_io(ins, outs, locktime=tx.locktime)
-        raw_tx = bytes.fromhex(tx2.serialize_to_network(include_sigs=False)) if ins else None
+        raw_tx = bytes.fromhex(tx2.serialize_to_network(include_sigs=not ins))
         utxos = [TxOut(value=x.value_sats(), pk_script=x.scriptpubkey) for x in ins]
         resp = stub().PsbtCreate(PsbtCreateRequest(raw_tx=raw_tx, witness_utxo=utxos))
         for txin in mwins:
