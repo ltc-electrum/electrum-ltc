@@ -8,7 +8,6 @@ safet>=0.1.5
 
 # device plugin: keepkey
 ecdsa>=0.9
-protobuf>=3.20
 mnemonic>=0.8
 hidapi>=0.7.99.post15
 libusb1>=1.6
