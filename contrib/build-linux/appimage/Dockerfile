@@ -81,8 +81,8 @@ RUN apt-get update -q && \
     apt-get autoremove -y && \
     apt-get clean
 
-RUN wget https://go.dev/dl/go1.25.1.linux-amd64.tar.gz
-RUN tar -C /usr/local -xzf go1.25.1.linux-amd64.tar.gz
+RUN wget https://go.dev/dl/go1.25.4.linux-amd64.tar.gz
+RUN tar -C /usr/local -xzf go1.25.4.linux-amd64.tar.gz
 
 # create new user to avoid using root; but with sudo access and no password for convenience.
 ARG UID=1000
