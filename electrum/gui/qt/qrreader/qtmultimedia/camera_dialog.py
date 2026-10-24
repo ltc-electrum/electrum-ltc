@@ -274,7 +274,6 @@ class QrReaderCameraDialog(Logger, MessageBoxMixin, QDialog):
         if accepted and self.validator_res and self.validator_res.accepted and self.validator_res.simple_result:
             try:
                 res = self.validator_res.simple_result.decode('utf-8')
-                res = self.ur_decoder.result or res
             except UnicodeDecodeError:
                 accepted = False
                 self._error_message = _("The QR code does not contain valid UTF-8 text.")
@@ -283,6 +282,7 @@ class QrReaderCameraDialog(Logger, MessageBoxMixin, QDialog):
 
         self.logger.info(f'closed, got result of {len(res)} chars')
 
+        res = res and (self.ur_decoder.result or res)
         self.qr_finished.emit(accepted, self._error_message, res)
 
     def _on_frame_available(self, frame: QImage):
@@ -330,7 +330,7 @@ class QrReaderCameraDialog(Logger, MessageBoxMixin, QDialog):
 
             # Close the dialog if the validator accepted the result
             if self.validator_res.accepted:
-                if not self.ur_decoder.receive_part(self.validator_res.simple_result):
+                if not self.ur_decoder.receive_part(self.validator_res.simple_result.decode('utf-8')):
                     self.accept()
                     return
 
