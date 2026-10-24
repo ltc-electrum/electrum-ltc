@@ -10,7 +10,7 @@ on:
         required: true
         default: 'all'
         type: choice
-        options: [all, windows, android, appimage, tarball]
+        options: [all, windows, macos, android, appimage, tarball]
       android_arch:
         description: 'Android architecture (when running android)'
         required: false
@@ -66,6 +66,10 @@ jobs:
           retention-days: ${{ env.ARTIFACT_RETENTION }}
           if-no-files-found: error
           compression-level: 0
+
+  macos:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'macos' }}
+    uses: ./.github/workflows/build-macos.yml
 
   android:
     name: "build: Android (${{ inputs.android_arch || 'arm64-v8a' }})"
