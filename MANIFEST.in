@@ -13,6 +13,7 @@ include contrib/*.sh
 
 graft electrum
 graft tests
+graft contrib/mwebd
 graft contrib/udev
 
 exclude electrum/*.so
