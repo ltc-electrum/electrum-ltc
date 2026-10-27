@@ -4071,7 +4071,7 @@ class Abstract_Wallet(ABC, Logger, EventListener):
     async def _add_transaction(self, tx, height):
         self._add_addr_history(tx, height)
         self.adb.add_unverified_or_unconfirmed_tx(tx.txid(), height)
-        self.adb.add_transaction(tx)
+        self.adb.add_transaction(tx, check_inputs=False)
         self.adb.up_to_date_changed()
         if height > 0:
             async def f():

@@ -290,7 +290,7 @@ class AddressSynchronizer(Logger, EventListener):
                 txin.set_mined_info(self.get_tx_height(txin.prevout.txid.hex()))
         return tx
 
-    def add_transaction(self, tx: Transaction, *, allow_unrelated=False, is_new=True) -> bool:
+    def add_transaction(self, tx: Transaction, *, allow_unrelated=False, is_new=True, check_inputs=True) -> bool:
         """
         Returns whether the tx was successfully added to the wallet history.
         Note that a transaction may need to be added several times, if our
@@ -324,7 +324,7 @@ class AddressSynchronizer(Logger, EventListener):
             stored_tx = self.db.get_transaction(tx_hash)
             is_new_witness = stored_tx is None or isinstance(stored_tx, PartialTransaction)
             checked_tx = tx if is_new_witness else stored_tx  # db keeps a complete tx
-            if not self._are_new_inputs_valid(checked_tx, range(len(tx.inputs())), is_new_witness=is_new_witness):
+            if check_inputs and not self._are_new_inputs_valid(checked_tx, range(len(tx.inputs())), is_new_witness=is_new_witness):
                 if not is_new_witness:
                     self.remove_transaction(tx_hash)
                 raise InvalidTxSignature()
